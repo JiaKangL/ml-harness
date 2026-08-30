@@ -24,7 +24,7 @@
     {
       "name": "leakage quarantine",
       "ok": true,
-      "detail": "1 file(s) excluded from cache: video_features_statistic_pure.csv",
+      "detail": "1 file(s), 52 columns verified absent from cache",
       "seconds": 0.0
     },
     {
@@ -37,13 +37,13 @@
       "name": "cache built",
       "ok": true,
       "detail": "train 1,141,112 / valid 124,909 / test 170,588",
-      "seconds": 0.01
+      "seconds": 0.0
     },
     {
       "name": "row alignment",
       "ok": true,
       "detail": "cache order == data.load() for all splits",
-      "seconds": 4.03
+      "seconds": 3.78
     },
     {
       "name": "leakage firewall",
@@ -61,7 +61,7 @@
       "name": "FM baseline",
       "ok": true,
       "detail": "valid GAUC 0.6671 nDCG@5 0.5358 primary 0.6015 vs expected 0.6016 (\u03940.0001, tol 0.004)",
-      "seconds": 25.66
+      "seconds": 23.46
     }
   ]
 }

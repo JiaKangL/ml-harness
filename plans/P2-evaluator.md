@@ -11,29 +11,36 @@ generator because a mistake here silently corrupts every number we report.
 
 ## Why this module exists
 
-FM's seed-to-seed std is **0.0008**. Over K candidate evaluations the expected best is
-σ·√(2·ln K) above the mean by luck alone:
+**Measured, not assumed.** 5 FM seeds on valid (`logs/sigma_valid.txt`):
+**σ(primary) = 0.00035**, mean 0.60157. Expected best-of-K noise is σ·√(2·ln K):
 
 | K | expected best-of-K noise |
 |---|---|
-| 10 | +0.0026 |
-| 30 | +0.0031 |
-| 50 | +0.0033 |
+| 10 | +0.00076 |
+| 30 | +0.00092 |
+| 50 | +0.00099 |
 
-The competition ships the **validation-best checkpoint**, so an evaluator that
-promotes on a single sample will hand the judges a lucky seed.
+This is *below* the organizers' 0.0008 test std, and the reason matters: our valid
+score is already an argmax over ~40 early-stopping epochs, and selecting the peak
+suppresses seed variance. Since valid-best is exactly what we compare across
+candidates, 0.00035 is the right scale for promotion decisions.
 
-**Three seeds is what makes ε=0.002 usable as a promotion threshold.** σ(single seed)
-≈ 0.0011, so σ(3-seed mean) ≈ 0.00064:
+### So why three seeds?
 
-| | +0.002 is | verdict |
-|---|---|---|
-| 1 seed | 1.8 σ | noise |
-| 3-seed mean | 3.1 σ | signal |
+Not because the noise floor demands it — at σ=0.00035, +0.002 is 5.7σ on one seed.
+The real reasons:
 
-So the organizers' own ε goes from a convergence-reporting rule to a defensible
-promotion criterion, purely by averaging. Over ~30 candidates at 3.1σ the expected
-false promotions are ≈0.03.
+1. **FM's variance is not every candidate's variance.** A torch model with random
+   initialisation can spread 3–5× wider. We cannot know a candidate's variance until
+   we measure it, and a single sample gives no estimate at all.
+2. **The variance estimate is itself a signal.** A candidate whose seeds disagree is
+   unstable, and that belongs in the ledger as INCONCLUSIVE rather than KEEP.
+3. **It costs ~45s** on a benchmark where the brief says compute is deliberately not
+   the binding constraint.
+
+Honest framing for the write-up: we measured the noise floor rather than assuming it,
+found it 3× smaller than our first estimate, and kept the gate anyway for a reason
+that survives the correction.
 
 ## The two-tier seed ladder (wall-clock)
 

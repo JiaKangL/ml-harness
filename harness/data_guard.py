@@ -157,7 +157,10 @@ def build_cache(data_dir: Path | None = None, force: bool = False) -> dict[str, 
     and never enter `splits.npz`.
     """
     data_dir = data_dir or C.DATA_DIR
-    if C.SPLITS_NPZ.exists() and not force:
+    # Both artifacts must exist. `cache/` is gitignored, so a partially restored cache
+    # would otherwise let the run proceed and only surface the missing holdout at the
+    # very end, when score_final.py needs it.
+    if C.SPLITS_NPZ.exists() and C.TEST_LABELS_NPY.exists() and not force:
         with np.load(C.SPLITS_NPZ) as z:
             return {s: int(z[f"{s}__user_id"].shape[0]) for s in C.SPLITS}
 
@@ -177,8 +180,31 @@ def build_cache(data_dir: Path | None = None, force: bool = False) -> dict[str, 
         for col in wanted:
             b[col].append(_to_int(row[col]))
 
+    # --- random-exposure log, VALID WINDOW ONLY.
+    #
+    # This file is 1,186,059 rows of which 897,721 (75.7%) fall in the test window,
+    # every one carrying long_view. It is the unbiased promotion-time check, so the
+    # design itself would route test ground truth into the promotion gate if it were
+    # read whole. Filter here, at build time, so those rows never materialise --
+    # exactly the same discipline as the main firewall rather than a reminder to be
+    # careful at the call site.
+    rand_cols = list(C.LOG_SAFE) + [C.LABEL]
+    rand: dict[str, list[int]] = {c: [] for c in rand_cols}
+    rand_path = data_dir / C.RANDOM_LOG_FILE
+    if rand_path.exists():
+        with open(rand_path, newline="") as fh:
+            for row in csv.DictReader(fh):
+                if int(row["date"]) > C.RANDOM_EXPOSURE_MAX_DATE:
+                    continue  # test window -- dropped before it reaches memory we keep
+                for col in rand_cols:
+                    rand[col].append(_to_int(row[col]))
+
     out: dict[str, np.ndarray] = {}
     counts: dict[str, int] = {}
+    for col in rand_cols:
+        out[f"rand__{col}"] = np.asarray(rand[col], dtype=_LOG_DTYPES[col])
+    counts["rand_valid"] = len(rand["user_id"])
+
     for split, cols in buckets.items():
         counts[split] = len(cols["user_id"])
         for col in C.LOG_SAFE:
@@ -217,6 +243,13 @@ class DataAPI:
         self._splits = dict(np.load(splits_npz or C.SPLITS_NPZ))
         self._side = dict(np.load(side_npz or C.SIDE_NPZ))
         self._group_cache: dict[str, np.ndarray] = {}
+        # Accessors hand out references into these dicts, and several consumers share
+        # one DataAPI (profiler, eda, evaluator). One in-place op in any of them would
+        # silently corrupt the ground truth every higher layer reports against, which
+        # is precisely the failure this layer exists to prevent. Freeze them.
+        for store in (self._splits, self._side):
+            for arr in store.values():
+                arr.setflags(write=False)
 
     # -- shape
 
@@ -292,7 +325,9 @@ class DataAPI:
         if split not in self._group_cache:
             users = self._splits[f"{split}__user_id"]
             _, inverse = np.unique(users, return_inverse=True)
-            self._group_cache[split] = inverse.astype(np.int32)
+            g = inverse.astype(np.int32)
+            g.setflags(write=False)
+            self._group_cache[split] = g
         return self._group_cache[split]
 
     # -- side tables, indexed by id
@@ -309,11 +344,15 @@ class DataAPI:
         return {"video": vids, "user": uids}
 
 
-def load_test_labels() -> np.ndarray:
-    """Read the held-out test labels. Only `score_final.py` may call this.
+    # -- unbiased validation set
 
-    Kept out of DataAPI on purpose: the import site is the audit trail.
-    """
-    if not C.TEST_LABELS_NPY.exists():
-        raise FileNotFoundError("test labels not materialised; run build_cache() first")
-    return np.load(C.TEST_LABELS_NPY)
+    def random_exposure(self) -> tuple[dict[str, np.ndarray], np.ndarray]:
+        """Randomly-exposed impressions, valid window only, with labels.
+
+        A second validation set with a *different* bias: a candidate that gains on
+        logged traffic but not here learned the logging policy rather than the
+        ranking. Test-window rows were dropped at cache-build time and are not
+        present, so this cannot become a test-set selection signal.
+        """
+        feats = {c: self._splits[f"rand__{c}"] for c in C.LOG_SAFE}
+        return feats, self._splits[f"rand__{C.LABEL}"].astype(np.int64)

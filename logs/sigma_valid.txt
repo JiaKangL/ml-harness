@@ -1,0 +1,16 @@
+seed 0: GAUC 0.66713  nDCG@5 0.53581  primary 0.60147  (16s)
+seed 1: GAUC 0.66739  nDCG@5 0.53613  primary 0.60176  (11s)
+seed 2: GAUC 0.66706  nDCG@5 0.53512  primary 0.60109  (15s)
+seed 3: GAUC 0.66746  nDCG@5 0.53555  primary 0.60150  (15s)
+seed 4: GAUC 0.66795  nDCG@5 0.53613  primary 0.60204  (16s)
+
+GAUC     mean 0.66740  std 0.00035
+
+nDCG@5   mean 0.53574  std 0.00043
+
+primary  mean 0.60157  std 0.00035
+
+sigma_valid(primary) = 0.00035
+  best-of-10 noise = +0.00076
+  best-of-30 noise = +0.00092
+  best-of-50 noise = +0.00099

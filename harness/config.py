@@ -30,6 +30,11 @@ ITERATION_LOGS_JSONL = LOGS_DIR / "iteration_logs.jsonl"  # crash-safe write pat
 PREFLIGHT_JSON = LOGS_DIR / "preflight.json"
 BEST_MODEL_PY = OUTPUTS_DIR / "best_model.py"
 SUBMISSION_CSV = OUTPUTS_DIR / "submission.csv"
+STATE_JSONL = LOGS_DIR / "state.jsonl"
+EDA_REPORT_MD = LOGS_DIR / "eda_report.md"
+EDA_JSON = LOGS_DIR / "eda.json"
+FINAL_RESULT_JSON = LOGS_DIR / "final_result.json"
+RUNS_DIR = ROOT / "runs"
 
 
 def candidate_path(iteration: int) -> Path:
@@ -64,6 +69,12 @@ LOG_FILES = (
     "log_standard_4_22_to_5_08_pure.csv",
 )
 RANDOM_LOG_FILE = "log_random_4_22_to_5_08_pure.csv"
+
+# The random-exposure log spans 20220422-20220508, i.e. BOTH the valid and test
+# windows: 1,186,059 rows of which 897,721 (75.7%) are test-window and every one
+# carries long_view. We cache only rows on or before this date, so the unbiased
+# promotion check can never see test ground truth.
+RANDOM_EXPOSURE_MAX_DATE = 20220428
 
 # ---------------------------------------------------------------- column legality
 #
@@ -166,7 +177,6 @@ BASELINE_TEST = {"GAUC": 0.6610, "nDCG@5": 0.5282, "primary": 0.5946}
 #   +0.002 at 3 seeds = 3.1 sigma  -> signal
 # Three seeds is precisely what makes the organizers' own epsilon usable as a
 # promotion threshold rather than merely as a convergence-reporting rule.
-SEED_LADDER = (42, (43, 44))
 CONFIRM_SEEDS = (42, 43, 44)
 
 # Prune after seed 42 alone. At -0.005 this is ~6 sigma below a promotable candidate,
@@ -215,6 +225,25 @@ MODEL = "claude-opus-5"
 CRITIC_MODEL = "claude-opus-5"
 N_CRITICS = 3
 MAX_CRITIQUE_ROUNDS = 2
+MAX_TOKENS = 32_000
+LLM_MAX_RETRIES = 3
+
+# 1h, not the bare-ephemeral 5-minute default: an iteration straddles 5 minutes, so
+# the default would give erratic hits and the miss is silent (visible only on cost).
+CACHE_TTL = "1h"
+
+# Claude Opus 5 list price, USD per million tokens. Cache reads ~0.1x input,
+# 1h-TTL writes 2x. Feasibility is graded on tokens, so this is a deliverable.
+PRICE_IN_PER_MTOK = 5.00
+PRICE_OUT_PER_MTOK = 25.00
+PRICE_CACHE_READ_PER_MTOK = 0.50
+PRICE_CACHE_WRITE_PER_MTOK = 10.00
+
+KILL_GRACE_S = 5
+ENSEMBLE_TOP_K = 5
+N_SEEDING_ITERATIONS = 4        # one forced probe per priority axis
+EXPLOIT_TRUNK_PROBABILITY = 0.6  # vs branching from an under-explored axis
+REWRITE_LINE_FRACTION = 0.6      # >60% of lines changed => labelled a rewrite
 
 # A candidate scoring above this on valid is presumed to be leakage, not skill:
 # the valid oracle ceiling is 0.8484 and the baseline is 0.6016.

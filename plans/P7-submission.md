@@ -48,9 +48,11 @@ formula `score_dataset = mean over m of delta(m)`.
 
 ## Write-up: the three things worth leading with
 
-1. **The noise gate.** σ=0.0008, best-of-50 luck is +0.0033, the competition ships the
-   validation-best checkpoint — so we never promote on a single sample. Quantified,
-   specific to this competition's scoring rule, and most teams will not have it.
+1. **The noise gate, and the fact that we measured it.** We assumed σ≈0.0012, measured
+   σ=0.00035 over 5 seeds, and found our headline claim was 3.3× overstated. The gate
+   stayed — but for a corrected reason: FM's variance is not a torch model's variance,
+   and a single sample gives no variance estimate at all. Reporting the correction is
+   stronger than reporting the original claim would have been.
 2. **The within-user variance lens.** A feature is worth what it varies inside a
    user's group; `tab` is 100x predictive globally and constant for 48% of users.
    This explains the organizers' published dead ends mechanistically.

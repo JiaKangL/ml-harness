@@ -55,10 +55,12 @@ One **iteration** is one turn of the research loop:
 ### Two ideas the whole design rests on
 
 **Why three seeds.** Training the same model twice with different random starts gives
-answers that differ by about 0.0008. If you try 50 ideas and keep the best one, the
-best is about **0.003** better than average *by luck alone* — bigger than the
-improvement we're chasing. So a single good score proves nothing. Three seeds, and we
-compare averages.
+slightly different answers. We measured that spread: **0.00035** on validation, so
+picking the best of 50 attempts gains about **+0.0010** by luck alone. That is smaller
+than we first assumed — but it is not why we run three seeds. We run three because
+that spread was measured on *one* model; a different model can be far less stable, and
+one run tells you nothing about how stable it is. Three runs give an average and a
+spread, so we can tell "this genuinely helped" from "this got lucky once".
 
 **Why a feature can be predictive and still worthless.** We rank *within* a user, so
 only differences *inside one person's list* matter. Anything identical across all of

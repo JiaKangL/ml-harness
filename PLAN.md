@@ -41,9 +41,18 @@ baseline (0.6610 / 0.5282), evaluated **once** on hidden test, from the
    user's group.** `tab` spans 0.4%→48.9% watch rate globally yet is constant for 48%
    of users. This is the mechanism behind the organizers' "user-side features give
    zero" finding — arithmetic, not an experiment.
-2. **Selection noise exceeds the target.** Seed std 0.0008; best-of-50 noise
-   σ·√(2 ln 50) ≈ **+0.0033**. The competition ships the *validation-best* checkpoint,
-   so naive promotion systematically ships a lucky seed.
+**2. Selection noise is real but smaller than assumed — and measured, not guessed.**
+Measured over 5 FM seeds on valid: **σ(primary) = 0.00035** (`logs/sigma_valid.txt`),
+giving best-of-50 selection noise of σ·√(2 ln 50) ≈ **+0.0010**. Note this is *below*
+the organizers' 0.0008 test std, because our valid score is already an argmax over ~40
+early-stopping epochs and selecting the peak suppresses seed variance.
+
+At that scale +0.002 is 5.7σ on a single seed, so the noise floor alone does not
+justify three seeds. The justification is different: **FM's variance is not every
+candidate's variance.** A torch model with random initialisation can easily spread 3–5×
+wider, and we cannot know until we measure it. Three seeds buys a per-candidate
+variance estimate and insurance against candidates we have not characterised — and it
+costs ~45s.
 3. **`long_view` is a threshold on watch time and `play_time_ms` is in the same row**
    (median play/duration 0.98 for positives, 0.03 for negatives). Must be prevented
    structurally, not by instruction.
@@ -127,7 +136,7 @@ class Metrics:            # one scored evaluation, possibly averaged over seeds
     primary_std: float = 0.0
 
 @dataclass(frozen=True)
-class Proposal:           # the agent's structured output contract
+class Proposal:           # the agent's structured output contracoct
     hypothesis: str       # what and WHY -- directly scored under Innovation
     axis: Axis
     grounding: str        # a named field from data_profile.json; resolved fuzzily
@@ -196,8 +205,8 @@ read/edit/bash loop. Hence no tool registry — and the graded deliverables
 
 ### Guarding against score-chasing
 
-- **Statistical:** the 3-seed gate, plus the random-exposure log (1.18M rows) as a
-  promotion-time check with a *different* bias — a candidate that gains on logged
+- **Statistical:** the 3-seed gate, plus the random-exposure log (valid window only,
+  288,338 rows) as a promotion-time check with a *different* bias — a candidate that gains on logged
   traffic but not on random exposure learned the logging policy, not the ranking.
 - **Epistemic:** the stored EDA is built *before* the loop and ships in every prompt;
   `grounding` must cite it; `predicted_delta` makes each iteration a hypothesis test;
