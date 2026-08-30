@@ -136,18 +136,82 @@ costs the sentence we most want: *"the agent chose it."*
 
 ---
 
+## Not using a framework
+
+No LangChain. The loop is ~200 lines of control flow we fully specify, and three
+costs bite: prompt caching needs byte-exact control over the request (our frozen
+prefix must be identical across ~30 calls on a 1h TTL, and framework layers silently
+break that); "coherent architecture, appropriate boundary" is easier to defend in a
+thin loop we wrote; and we do none of what a framework is for — no RAG, no vector
+store, no multi-provider routing, no tool-calling chain. Single structured
+completion calls against the `anthropic` SDK.
+
+**The agent is code-emitting, not tool-using.** It returns one Python script per
+iteration rather than driving a read/edit/bash loop. That is why there is no tool
+registry. It is also why the deliverables fall out for free: `candidate_iter_NN.py`
+and the per-iteration diff *are* the graded artifacts, which a free-form tool loop
+makes awkward to produce cleanly.
+
+---
+
+## Guarding against score-chasing
+
+Two different overfitting risks, with different fixes.
+
+**Statistical — selection noise on valid.** The 3-seed gate, plus the random-exposure
+log (`log_random_4_22_to_5_08_pure.csv`, 1.18M rows) as a promotion-time check with a
+*different* bias: a candidate that gains on logged traffic but not on random exposure
+learned the logging policy, not the ranking.
+
+**Epistemic — hill-climbing the metric without understanding.** Four mechanisms, all
+enforceable in the output contract:
+
+1. **The stored EDA is the prior.** `logs/data_profile.json` is built before the loop
+   starts and ships in every prompt, so proposals are anchored to measured properties
+   rather than to score feedback alone. A fuller `logs/eda_report.md` (superset, for
+   humans and the write-up) is written at the same time.
+2. **Every proposal must cite a grounding fact** — a named field from the data profile
+   that motivates the change. Proposals that cite nothing are rejected before
+   execution, at zero compute cost. This is also exactly what Innovation (20%) scores:
+   *what the agent identified as worth trying and why*.
+3. **Predicted delta before execution**, which makes each iteration a hypothesis test
+   rather than a search step.
+4. **Calibration is tracked as a metric about the agent itself.** If predicted deltas
+   correlate with realised ones, the agent is reasoning; if they don't, it is
+   guessing. Reporting that correlation is a genuinely novel thing to put in the
+   write-up, and it is nearly free to compute.
+
+Per-iteration we also log **GAUC and nDCG@5 separately**: they weight users
+differently (GAUC by positive count, nDCG equally with 36.3% of users fixed), so a
+change that moves exactly one of them has a mechanism, while a change that nudges
+both slightly is more likely noise.
+
+---
+
 ## Build order
 
 | # | Deliverable | Time | Why here |
 |---|---|---|---|
-| 0 | Preflight gate | 30m | Mostly done — data downloaded, venv built, kit profiled |
-| 1 | `data_guard.py` + `profiler.py` | 2h | The firewalls. Everything downstream is meaningless without them |
+| 0 | `preflight.py` | 30m | **done** — 9 checks in 30s; FM reproduces to 0.6015 vs 0.6016 |
+| 1 | `data_guard.py` + `profiler.py` + `tests/` | 2h | **done** — firewalls, 1,134-token profile, 23 acceptance tests |
+| 1b | `eda_report.md` | 30m | Fuller stored EDA for the write-up (superset of the prompt profile) |
 | 2 | `evaluator.py` | 2h | The noise gate. Built before the generator, because a mistake here silently corrupts every result we'd report |
 | 3 | `executor.py` | 2h | Sandbox, smoke run, output validation |
 | 4 | `memory.py` + `logger.py` | 1.5h | Trunk pointer, insight ledger, `iteration_logs.json` |
-| 5 | `agent.py` + `loop.py` | 2h | The generator — **last**, because a mistake here is cheap and visible |
+| 5 | `prompts.py` + `llm.py` + `agent.py` + `loop.py` + `console.py` | 2.5h | The generator — **last**, because a mistake here is cheap and visible |
 | 6 | `critics.py` | 1.5h | Stall escalation + seed ensembling |
 | 7 | Run + write-up | 3h | Unattended run, then `score_final.py` once, README, diagram, Devpost |
+
+`prompts.py` holds the system prompt as a versioned constant rather than a string
+buried in `agent.py`: it shapes what the agent proposes, Innovation is scored on
+exactly that, and the frozen cache prefix must be byte-identical across calls.
+
+**Mock mode is built alongside the loop, not after it.** `--mock` swaps the LLM for a
+set of pre-written candidate scripts (one good, one that crashes, one that emits
+constant scores, one that attempts leakage), so the executor, evaluator, state
+tracker, logger and stall escalation can be exercised end-to-end in seconds with zero
+tokens. On a one-day build this is the difference between debugging the loop and
+debugging the loop *while* waiting on API calls.
 
 **If time runs short, cut in this order:** unbiased-validation check → seed ensembling
 → the third critic. **Never cut** `data_guard`, the 3-seed gate, or the iteration log.

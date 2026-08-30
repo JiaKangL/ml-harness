@@ -16,6 +16,7 @@ python3 -m venv .venv && ./.venv/bin/pip install -r requirements.txt
 ./scripts/get_data.sh                     # 47 MB from Zenodo
 ./.venv/bin/python -m harness.preflight   # blocking gate, ~30s
 ./.venv/bin/python -m harness.profiler    # writes logs/data_profile.json
+./.venv/bin/python -m unittest discover -s tests -t .   # 23 acceptance tests
 ```
 
 `preflight` refuses to let the loop start until it has reproduced the organizers'
@@ -44,7 +45,7 @@ like an ordinary item-features file.
 | Phase | State |
 |---|---|
 | 0 — preflight gate | done |
-| 1 — data guard + profiler | done |
+| 1 — data guard + profiler + tests | done |
 | 2 — evaluator (noise gate) | next |
 | 3 — executor | |
 | 4 — memory + logger | |
