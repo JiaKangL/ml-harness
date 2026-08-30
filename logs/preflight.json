@@ -1,0 +1,67 @@
+{
+  "passed": true,
+  "environment": {
+    "python": "3.14.7",
+    "python_bin": "/Users/jk/projects/ml-harness/.venv/bin/python",
+    "numpy": "2.5.2",
+    "platform": "macOS-26.5.2-arm64-arm-64bit-Mach-O",
+    "machine": "arm64",
+    "evaluate_sha256": "ecfde28392eb14fec4f488083251df50624e1af2b86278b962daecfb42d195de"
+  },
+  "checks": [
+    {
+      "name": "environment",
+      "ok": true,
+      "detail": "python 3.14.7, numpy 2.5.2",
+      "seconds": 0.0
+    },
+    {
+      "name": "data present",
+      "ok": true,
+      "detail": "106 MB of standard logs",
+      "seconds": 0.0
+    },
+    {
+      "name": "leakage quarantine",
+      "ok": true,
+      "detail": "1 file(s) excluded from cache: video_features_statistic_pure.csv",
+      "seconds": 0.0
+    },
+    {
+      "name": "evaluate.py frozen",
+      "ok": true,
+      "detail": "sha256 ecfde28392eb14fe\u2026",
+      "seconds": 0.0
+    },
+    {
+      "name": "cache built",
+      "ok": true,
+      "detail": "train 1,141,112 / valid 124,909 / test 170,588",
+      "seconds": 0.01
+    },
+    {
+      "name": "row alignment",
+      "ok": true,
+      "detail": "cache order == data.load() for all splits",
+      "seconds": 4.03
+    },
+    {
+      "name": "leakage firewall",
+      "ok": true,
+      "detail": "test labels + eval outcomes unreachable",
+      "seconds": 0.0
+    },
+    {
+      "name": "random baseline",
+      "ok": true,
+      "detail": "valid primary 0.4827 vs expected 0.4834 (\u03940.0007, tol 0.001)",
+      "seconds": 0.4
+    },
+    {
+      "name": "FM baseline",
+      "ok": true,
+      "detail": "valid GAUC 0.6671 nDCG@5 0.5358 primary 0.6015 vs expected 0.6016 (\u03940.0001, tol 0.004)",
+      "seconds": 25.66
+    }
+  ]
+}
