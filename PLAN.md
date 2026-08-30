@@ -1,28 +1,28 @@
-# Autonomous ML Research Agent — KuaiRand-Pure
+# Architecture — Autonomous ML Research Agent
 
-**TikTok TechJam 2026, Track 2.** Submission due 1 Sep, 12pm. Budget: ~1 day.
+**TikTok TechJam 2026, Track 2.** Submission due 1 Sep, 12pm.
+
+This file is the **generic architecture**: the parts, what each is responsible for,
+and the contracts between them. Each part has its own implementation sub-plan under
+[`plans/`](plans/), written so it can be picked up independently.
 
 ---
 
 ## Context
 
-We are building **an agent that does ML research**, not an ML model. The agent reads
-the problem, writes code, trains, evaluates, reads its own results, decides what to
-try next, and stops when it stops improving. The score on KuaiRand-Pure is *evidence
-the agent works*.
+We are building **an agent that does ML research**, not an ML model. It reads the
+problem, writes code, trains, evaluates, reads its own results, decides what to try
+next, and stops when it stops improving. The score on KuaiRand-Pure is *evidence the
+agent works*.
 
-Two constraints shape every decision below:
+Two constraints shape everything:
 
 - jk has never built a recommender model. The goal is a system jk can **defend**, not
   the highest score from a system jk can't explain.
 - The starter kit is the *agent's* seed, not ours. Editing `data.py` or `baseline.py`
   by hand is a manual intervention — the exact thing scored against us.
 
----
-
-## Why the design looks like this
-
-### What the rubric actually pays for
+### What the rubric pays for
 
 | Criterion | Weight | Measures |
 |---|---|---|
@@ -31,212 +31,205 @@ Two constraints shape every decision below:
 | Impact & Relevance | 20% | **Autonomy** — counted as *number of manual interventions* |
 | Feasibility & Practicality | 15% | Token + wall-clock cost. **Only scored if you beat baseline.** |
 
-**40% (Innovation + Autonomy) is about the loop, not the number.** The hypothesis text
-the agent writes into each log entry is a directly scored artifact.
+**40% is about the loop, not the number.** Scoring is `mean(ΔGAUC, ΔnDCG@5)` vs
+baseline (0.6610 / 0.5282), evaluated **once** on hidden test, from the
+**validation-best checkpoint at convergence**.
 
-Scoring: `mean(ΔGAUC, ΔnDCG@5)` against baseline (0.6610 / 0.5282), evaluated **once**
-on hidden test, using the **validation-best checkpoint at convergence**.
+### Three measured facts that drive the design
 
-### Three measured facts that drive the architecture
-
-**1. You rank within a user, so a feature is worth exactly what it varies inside one
-user's group.** `tab` has a 100× spread in long-view rate globally (0.4% → 48.9%) yet
-is constant for 48% of users. This is the mechanism behind the organizers' "user-side
-features contribute 0" finding — arithmetic, not an experiment. It also explains why
-loss alignment is the top direction: pointwise logloss spends capacity on each user's
-*absolute* level, which cancels out of the ranking entirely.
-
-**2. Selection noise is larger than the target.** Seed std is 0.0008; best-of-50 noise
-is σ·√(2 ln 50) ≈ **+0.0033**. Since the competition ships the *validation-best*
-checkpoint, naive promotion systematically ships a lucky seed. This is the single
-biggest threat to a real result.
-
-**3. `long_view` is a threshold on watch time, and `play_time_ms` sits in the same
-row.** For positives the median play/duration ratio is 0.98; for negatives, 0.03. The
-multi-task direction points the agent straight at this cliff. It must be prevented
-structurally, not by instruction.
+1. **Ranking is within-user, so a feature is worth exactly what it varies inside one
+   user's group.** `tab` spans 0.4%→48.9% watch rate globally yet is constant for 48%
+   of users. This is the mechanism behind the organizers' "user-side features give
+   zero" finding — arithmetic, not an experiment.
+2. **Selection noise exceeds the target.** Seed std 0.0008; best-of-50 noise
+   σ·√(2 ln 50) ≈ **+0.0033**. The competition ships the *validation-best* checkpoint,
+   so naive promotion systematically ships a lucky seed.
+3. **`long_view` is a threshold on watch time and `play_time_ms` is in the same row**
+   (median play/duration 0.98 for positives, 0.03 for negatives). Must be prevented
+   structurally, not by instruction.
 
 ---
 
-## Architecture — the loop, in order
+## The system
 
 ```
-preflight  →  profile  →  [ propose → execute → score → gate → log ]×N  →  ensemble  →  submit
-                               ↑                          │
-                               └────── critics ←── stall ─┘
+                          ┌──────────────────────────────────┐
+  L6  ORCHESTRATION       │  loop.py          console.py     │
+                          └───────────────┬──────────────────┘
+                          ┌───────────────▼──────────────────┐
+  L5  GENERATION          │  agent.py   critics.py           │
+                          │  prompts.py     llm.py           │
+                          └───────────────┬──────────────────┘
+              ┌───────────────────────────┼───────────────────────────┐
+  L4  MEMORY  │  memory.py  logger.py     │                           │
+              └───────────────────────────┤                           │
+              ┌───────────────────────────┤              ┌────────────▼────────────┐
+  L3  EXECUTION  │  executor.py           │              │  L2  MEASUREMENT        │
+                 └────────────────────────┤              │  evaluator.py           │
+                                          │              └────────────┬────────────┘
+                          ┌───────────────▼───────────────────────────▼──────────┐
+  L1  GROUND TRUTH        │ config.py  data_guard.py  preflight.py               │
+                          │ profiler.py  eda.py                    tests/        │
+                          └──────────────────────────────────────────────────────┘
+
+  TERMINAL (outside the loop, runs once)   score_final.py
 ```
 
-**1. Preflight (blocking).** Pin the interpreter by absolute path, checksum
-`evaluate.py`, reproduce `--model random` → valid 0.4834 ±0.001 and `--model fm` →
-0.6016. The loop refuses to start otherwise — an agent loop on a broken harness
-produces 50 iterations of confidently-logged garbage.
+**Dependencies point strictly downward.** No L1 module imports from L2+; no L2 module
+imports from L3+. This is what makes the parts independently implementable and
+testable, and it is why the foundation was built first: a mistake in L1 silently
+corrupts every number the higher layers report.
 
-**2. Profile once.** `data_profile.json` (<1200 tokens, ships in every prompt): group
-sizes, within-user variance per feature, per-user history lengths, label drift, aux
-signal correlations. Measured, not assumed — the README's "hundreds to thousands of
-interactions per user" is actually a median of 31.
+### The parts
 
-**3. Propose.** Claude Opus 5, adaptive thinking. Frozen cached prefix (task spec,
-`evaluate.py` verbatim, data profile, prior-knowledge pack) + append-only ledger +
-volatile working set. Output contract requires an `axis` and a **predicted delta
-before execution** — which makes the verdict calibratable and catches proposals with
-no hypothesis behind them.
+| Layer | Module | Responsible for | Produces |
+|---|---|---|---|
+| L1 | `config.py` | Paths, run policy, **which columns are legal on which split** | — |
+| L1 | `data_guard.py` | The only data surface the agent gets; both firewalls | `cache/*.npz` |
+| L1 | `preflight.py` | Blocking gate: 9 checks incl. reproducing the official baselines | `logs/preflight.json` |
+| L1 | `profiler.py` | Prompt-sized measured data facts | `logs/data_profile.json` |
+| L1 | `eda.py` | Full human-readable EDA; superset of the profile | `logs/eda_report.md` |
+| L1 | `tests/` | Assert every guard **fires**, not that it exists | — |
+| L2 | `evaluator.py` | Score, 3-seed promotion gate, convergence, submission build | `outputs/submission.csv` |
+| L3 | `executor.py` | Run agent-written code safely; validate its output | `runs/iter_NN/` |
+| L4 | `memory.py` | State tree, trunk pointer, insight ledger | `logs/state.jsonl` |
+| L4 | `logger.py` | The primary graded deliverable | `logs/iteration_logs.json` |
+| L5 | `prompts.py` | System prompt + prior-knowledge pack, versioned | — |
+| L5 | `llm.py` | Anthropic client, retries, token/cost accounting, cache placement | — |
+| L5 | `agent.py` | Three-tier context assembly; parse + validate proposals | `outputs/candidate_iter_NN.py` |
+| L5 | `critics.py` | Stall escalation: 3 isolated reviewers | — |
+| L6 | `loop.py` | Orchestrates one iteration and the run | — |
+| L6 | `console.py` | Live progress display | — |
+| — | `score_final.py` | The **only** code permitted to read test labels | `logs/final_result.json` |
 
-**4. Execute.** `ast.parse` → smoke run on 1% / 30s → full run → validate output.
-Process-group kill, stdout/stderr to files never PIPE, within-user-variance check.
-Syntax and smoke failures are free; runtime failures cost an iteration and are
-repaired once with the traceback.
+---
 
-**5. Gate.** 3 seeds on every scored candidate; promote on the mean; report mean ± std.
-*We never promote on a single sample.* Promotion moves a trunk pointer — nodes are
-immutable, so rollback is free and a degraded node can never become a parent.
+## Shared contracts
 
-**6. Escalate on stall.** At **2** consecutive non-improvements (one before the
-organizers' N=3 convergence, so the result can still break the streak), fan out to 3
-isolated critics in fresh context — objective alignment, validity, unexplored space.
-They see the trunk, profile and ledger, **not** the agent's reasoning chain, because a
-critic sharing that context just agrees with it. Their output re-enters as ordinary
-proposals through the same gate. Max 2 rounds. **A critic is not a human, so this
-keeps manual interventions at zero.**
+Every part codes against these. They live in `harness/types.py`, created first so the
+sub-plans can be implemented in parallel without drifting.
 
-**7. Endgame.** When critique is exhausted, average the per-row scores of the top-k
-confirmed nodes. Their errors are partly independent, so noise falls as ~√k — turning
-"several things that each worked a little" into one thing that works slightly more.
-Logged as its own iteration, through the same gate.
+```python
+Split = Literal["train", "valid", "test"]
+Axis  = Literal["loss", "sequence", "multitask", "watchtime",
+                "architecture", "temporal", "debias", "ensemble"]
 
-**8. Submit.** Re-execute the promoted node's stored source from disk (never a pickled
-model), then `submit.py --check`.
+class Verdict(Enum):     KEEP; DISCARD; INCONCLUSIVE
+class NodeStatus(Enum):  PENDING; SCORED; PROMOTED; FAILED; PRUNED; QUARANTINED
+class FailureClass(Enum): SYNTAX; CONTRACT; SMOKE; RUNTIME; TIMEOUT; OOM;
+                          INVALID_OUTPUT; NONDETERMINISTIC
 
-### Two firewalls that are not optional
+@dataclass(frozen=True)
+class Metrics:            # one scored evaluation, possibly averaged over seeds
+    gauc: float; ndcg5: float; primary: float
+    users: int; rows: int
+    seeds: tuple[int, ...] = (42,)
+    primary_std: float = 0.0
 
-**Leakage.** `features(split)` returns eval splits with behavioural columns *absent*,
-not masked. `aux_targets("train")` exposes them for training only, behind a call whose
-name says what they are. Enforced by the type system, not the prompt.
+@dataclass(frozen=True)
+class Proposal:           # the agent's structured output contract
+    hypothesis: str       # what and WHY -- directly scored under Innovation
+    axis: Axis
+    grounding: str        # a named field from data_profile.json. Absent -> rejected
+    predicted_delta: float
+    code: str
 
-**Test.** Test labels never load during the run; the agent cannot compute a test score,
-so it cannot select on one. A separate `score_final.py` is the only path that may read
-them, refuses to run unless the run is converged, and runs **once**. Harness
-improvements afterward go back to test-blind — a second draw makes the estimate
-optimistically biased.
+@dataclass
+class Node:               # one attempt; immutable once scored
+    node_id: str; parent_id: str | None; iteration: int
+    proposal: Proposal; status: NodeStatus
+    code_path: str; code_sha256: str
+    valid: Metrics | None = None
+    failures: list[FailureRecord] = field(default_factory=list)
+    resources: ResourceFacts | None = None
+    tokens: TokenUsage | None = None
+
+@dataclass(frozen=True)
+class Insight:            # ledger entry, keyed by (axis, technique)
+    axis: Axis; technique: str; verdict: Verdict
+    delta_primary: float; delta_gauc: float; delta_ndcg5: float
+    n_seeds: int; mechanism: str      # WHY -- mechanisms generalise, bans decay
+```
+
+**`grounding` and `predicted_delta` are the anti-score-chasing mechanism.** A proposal
+that cannot name a measured fact motivating it, or predict its own effect, is
+rejected before execution at zero compute cost. Predicted-vs-realised correlation is
+then tracked as a *metric about the agent* — reasoning versus guessing.
+
+---
+
+## Cross-cutting rules
+
+### Two firewalls (non-negotiable)
+
+**Leakage.** Post-impression outcome columns are materialised for `train` only —
+absent from evaluation-split arrays, not masked within them.
+
+**Test.** Test labels never load during the run; `labels("test")` raises. They sit in
+`cache/_holdout/`, which nothing in the agent's prompt or import path names. Only
+`score_final.py` reads them, once, after convergence. Harness improvements afterward
+go back to test-blind: a second draw makes the estimate optimistically biased.
+
+Additionally `video_features_statistic_pure.csv` is quarantined — dataset-wide
+aggregates of play/completion behaviour spanning the test window, disguised as an
+ordinary item-features file.
+
+### No framework
+
+No LangChain. Prompt caching needs byte-exact request control (a frozen prefix
+identical across ~30 calls on a 1h TTL, which framework layers silently break); a thin
+loop is easier to defend under "coherent architecture, appropriate boundary"; and we
+do none of what a framework is for — no RAG, no vector store, no tool-calling chain.
+
+**The agent is code-emitting, not tool-using.** One Python script per iteration, not a
+read/edit/bash loop. Hence no tool registry — and the graded deliverables
+(`candidate_iter_NN.py`, the per-iteration diff) fall out for free.
+
+### Guarding against score-chasing
+
+- **Statistical:** the 3-seed gate, plus the random-exposure log (1.18M rows) as a
+  promotion-time check with a *different* bias — a candidate that gains on logged
+  traffic but not on random exposure learned the logging policy, not the ranking.
+- **Epistemic:** the stored EDA is built *before* the loop and ships in every prompt;
+  `grounding` must cite it; `predicted_delta` makes each iteration a hypothesis test;
+  calibration is reported. GAUC and nDCG@5 are logged separately, since a change that
+  moves exactly one has a mechanism while one that nudges both is likelier noise.
 
 ### Prior-knowledge pack
 
-The organizers published both halves — three measured dead ends *and* seven ranked
-directions. The agent gets both, as literature, then chooses. Dead ends carry their
-**mechanism**, because mechanisms generalize and bare bans decay over 30 turns.
+The organizers published three measured dead ends *and* seven ranked directions. The
+agent gets both, as literature, then chooses. Dead ends carry their **mechanism**.
 
-The seven directions are a **search space, not a menu**. The agent runs 10–15
-iterations, each building on what already worked; they compose (`FM + listwise loss +
-multi-task heads + hour-of-day` is three of seven, stacked). They are also the ledger's
-vocabulary — without them, iteration 9 can't know iteration 2 settled the loss question.
+The seven directions are a **search space, not a menu** — the agent runs 10–15
+iterations and they compose (`FM + listwise loss + multi-task heads + hour-of-day` is
+three of seven, stacked). They are also the ledger's vocabulary.
 
-We do **not** hard-code listwise softmax. It's ranked #1 by the organizers, and if the
-agent misses it, Critic A's entire job is to surface loss misalignment. Forcing it
-costs the sentence we most want: *"the agent chose it."*
+We do **not** hard-code listwise softmax: it is ranked #1 in the pack, and Critic A's
+entire job is to surface loss misalignment if the agent misses it. Forcing it costs
+the sentence we most want — *"the agent chose it."*
 
 ---
 
-## Not using a framework
+## Build order and sub-plans
 
-No LangChain. The loop is ~200 lines of control flow we fully specify, and three
-costs bite: prompt caching needs byte-exact control over the request (our frozen
-prefix must be identical across ~30 calls on a 1h TTL, and framework layers silently
-break that); "coherent architecture, appropriate boundary" is easier to defend in a
-thin loop we wrote; and we do none of what a framework is for — no RAG, no vector
-store, no multi-provider routing, no tool-calling chain. Single structured
-completion calls against the `anthropic` SDK.
-
-**The agent is code-emitting, not tool-using.** It returns one Python script per
-iteration rather than driving a read/edit/bash loop. That is why there is no tool
-registry. It is also why the deliverables fall out for free: `candidate_iter_NN.py`
-and the per-iteration diff *are* the graded artifacts, which a free-form tool loop
-makes awkward to produce cleanly.
-
----
-
-## Guarding against score-chasing
-
-Two different overfitting risks, with different fixes.
-
-**Statistical — selection noise on valid.** The 3-seed gate, plus the random-exposure
-log (`log_random_4_22_to_5_08_pure.csv`, 1.18M rows) as a promotion-time check with a
-*different* bias: a candidate that gains on logged traffic but not on random exposure
-learned the logging policy, not the ranking.
-
-**Epistemic — hill-climbing the metric without understanding.** Four mechanisms, all
-enforceable in the output contract:
-
-1. **The stored EDA is the prior.** `logs/data_profile.json` is built before the loop
-   starts and ships in every prompt, so proposals are anchored to measured properties
-   rather than to score feedback alone. A fuller `logs/eda_report.md` (superset, for
-   humans and the write-up) is written at the same time.
-2. **Every proposal must cite a grounding fact** — a named field from the data profile
-   that motivates the change. Proposals that cite nothing are rejected before
-   execution, at zero compute cost. This is also exactly what Innovation (20%) scores:
-   *what the agent identified as worth trying and why*.
-3. **Predicted delta before execution**, which makes each iteration a hypothesis test
-   rather than a search step.
-4. **Calibration is tracked as a metric about the agent itself.** If predicted deltas
-   correlate with realised ones, the agent is reasoning; if they don't, it is
-   guessing. Reporting that correlation is a genuinely novel thing to put in the
-   write-up, and it is nearly free to compute.
-
-Per-iteration we also log **GAUC and nDCG@5 separately**: they weight users
-differently (GAUC by positive count, nDCG equally with 36.3% of users fixed), so a
-change that moves exactly one of them has a mechanism, while a change that nudges
-both slightly is more likely noise.
-
----
-
-## Build order
-
-| # | Deliverable | Time | Why here |
+| Phase | Parts | Sub-plan | State |
 |---|---|---|---|
-| 0 | `preflight.py` | 30m | **done** — 9 checks in 30s; FM reproduces to 0.6015 vs 0.6016 |
-| 1 | `data_guard.py` + `profiler.py` + `tests/` | 2h | **done** — firewalls, 1,134-token profile, 23 acceptance tests |
-| 1b | `eda_report.md` | 30m | Fuller stored EDA for the write-up (superset of the prompt profile) |
-| 2 | `evaluator.py` | 2h | The noise gate. Built before the generator, because a mistake here silently corrupts every result we'd report |
-| 3 | `executor.py` | 2h | Sandbox, smoke run, output validation |
-| 4 | `memory.py` + `logger.py` | 1.5h | Trunk pointer, insight ledger, `iteration_logs.json` |
-| 5 | `prompts.py` + `llm.py` + `agent.py` + `loop.py` + `console.py` | 2.5h | The generator — **last**, because a mistake here is cheap and visible |
-| 6 | `critics.py` | 1.5h | Stall escalation + seed ensembling |
-| 7 | Run + write-up | 3h | Unattended run, then `score_final.py` once, README, diagram, Devpost |
+| 0 | `preflight.py` | — | **done** — 9 checks/30s; FM 0.6015 vs 0.6016 |
+| 1 | `config` `data_guard` `profiler` `tests` | — | **done** — 23 tests, 1,134-token profile |
+| 1b | `eda.py` | [`plans/P1b-eda.md`](plans/P1b-eda.md) | |
+| 2 | `evaluator.py` | [`plans/P2-evaluator.md`](plans/P2-evaluator.md) | next |
+| 3 | `executor.py` | [`plans/P3-executor.md`](plans/P3-executor.md) | |
+| 4 | `memory.py` `logger.py` | [`plans/P4-memory-logger.md`](plans/P4-memory-logger.md) | |
+| 5 | `prompts` `llm` `agent` `loop` `console` | [`plans/P5-agent-loop.md`](plans/P5-agent-loop.md) | |
+| 6 | `critics.py` + ensembling | [`plans/P6-critics.md`](plans/P6-critics.md) | |
+| 7 | `score_final.py` + write-up | [`plans/P7-submission.md`](plans/P7-submission.md) | |
 
-`prompts.py` holds the system prompt as a versioned constant rather than a string
-buried in `agent.py`: it shapes what the agent proposes, Innovation is scored on
-exactly that, and the frozen cache prefix must be byte-identical across calls.
-
-**Mock mode is built alongside the loop, not after it.** `--mock` swaps the LLM for a
-set of pre-written candidate scripts (one good, one that crashes, one that emits
-constant scores, one that attempts leakage), so the executor, evaluator, state
-tracker, logger and stall escalation can be exercised end-to-end in seconds with zero
-tokens. On a one-day build this is the difference between debugging the loop and
-debugging the loop *while* waiting on API calls.
+**Mock mode is built with Phase 5, not after it.** `--mock` swaps the LLM for four
+pre-written candidates (good / crashes / constant scores / attempts leakage), so L2–L6
+can be exercised end-to-end in seconds with zero tokens.
 
 **If time runs short, cut in this order:** unbiased-validation check → seed ensembling
 → the third critic. **Never cut** `data_guard`, the 3-seed gate, or the iteration log.
-
----
-
-## Git
-
-**Commit:** `harness/`, the unmodified starter kit, `iteration_logs.json`, every
-generated `runs/iter_*/solution.py` (evidence of what the agent actually wrote), the
-submission CSV, results table, `requirements.txt`, `scripts/get_data.sh`, README +
-architecture diagram.
-
-**Never commit:** API keys (check git *history*, not just the tree), the KuaiRand
-dataset (~200MB), `.venv/`, `__pycache__/`, `cache/*.npz`, per-iteration checkpoints.
-
----
-
-## Logging granularity
-
-**One entry per agent iteration** — one turn of the MLE loop, not one training epoch.
-If iteration 7 trains 40 epochs across 3 seeds, that is **one** entry reporting mean ±
-std. Each carries: hypothesis (*what and why*), code diff, GAUC / nDCG@5, and any error
-or recovery events. Plus one run-level count of manual interventions. This log is how
-judges read Innovation and Robustness.
 
 ---
 
@@ -245,14 +238,22 @@ judges read Innovation and Robustness.
 | Check | Passes when |
 |---|---|
 | Noise gate | Evaluator **refuses to promote** FM re-run with a different seed |
-| Test firewall | `features("test")` carries no labels; reaching them raises |
+| Test firewall | `labels("test")` raises; cache holds no test label |
 | Leakage firewall | A script reading `play_time_ms` on an eval split fails at load |
 | Process hygiene | A hung script leaves **no orphan processes** |
 | Output validity | Constant-score output is rejected (within-user variance = 0) |
 | Crash recovery | A deliberate `NameError` is repaired without costing an iteration |
-| End-to-end | `loop.py --max-iters 3` → 3 complete log entries; forced stall fires the critics |
+| End-to-end | `loop.py --mock --max-iters 5` → 5 log entries; forced stall fires critics |
 | Submission | `submit.py --check --split test` passes; `--score --split valid` agrees to 1e-6 |
 
 **Submission package:** public repo, README + architecture diagram,
-`iteration_logs.json`, all generated solutions, submission CSV, results table with
+`iteration_logs.json`, all generated solutions, `submission.csv`, results table with
 absolute deltas per metric, and the manual-intervention count — target **0**.
+
+### Git
+
+**Commit:** `harness/`, unmodified starter kit, `logs/*.json`, every generated
+`candidate_iter_NN.py`, `submission.csv`, `requirements.txt`, `scripts/get_data.sh`,
+README + diagram.
+**Never commit:** API keys (check *history*, not just the tree), the dataset (~200MB),
+`.venv/`, `__pycache__/`, `cache/`, `runs/`.
