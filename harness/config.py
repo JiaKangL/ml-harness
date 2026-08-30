@@ -46,9 +46,12 @@ def run_dir(iteration: int) -> Path:
     """Per-iteration working directory: stdout/stderr, scores, checkpoints."""
     return ROOT / "runs" / f"iter_{iteration:02d}"
 
-# Test labels live off the agent's path entirely. Only score_final.py reads this.
-HOLDOUT_DIR = CACHE_DIR / "_holdout"
-TEST_LABELS_NPY = HOLDOUT_DIR / "test_labels.npy"
+# Test labels are NEVER materialised. They are parsed from the organizer's raw log at
+# scoring time, and only after the run is sealed -- so during a run there is no
+# test-label artifact anywhere for a stray glob to find. See harness/holdout.py.
+HOLDOUT_DIR = CACHE_DIR / "_holdout"          # asserted empty by preflight
+RUN_SEAL_JSON = LOGS_DIR / "run_seal.json"    # written on convergence; gates scoring
+SCORED_MARKER_JSON = LOGS_DIR / "test_draws.json"  # every draw on test, recorded
 
 # Absolute interpreter path. Resolved by PATH exactly once, here, then pinned:
 # three Pythons are installed on this machine and only one has numpy.
@@ -217,8 +220,14 @@ GROUNDING_FUZZY_CUTOFF = 0.6
 # surfaces as a harness fault rather than being misread as a broken candidate.
 # The prompt states this list verbatim; anything outside it is a contract violation.
 ALLOWED_IMPORTS = ("numpy", "math", "csv", "json", "collections", "itertools",
-                   "random", "time", "os", "sys", "pathlib", "dataclasses", "typing")
-OPTIONAL_IMPORTS = ()  # populated once the torch/lightgbm decision is made
+                   "random", "time", "os", "sys", "pathlib", "dataclasses", "typing",
+                   "functools", "heapq", "statistics", "warnings", "abc", "enum")
+
+# Import-checked at preflight and stated verbatim in the prompt. Without the check, a
+# missing package reads as a broken candidate: the agent concludes its *idea* failed,
+# writes DISCARD into the ledger, and a whole research axis dies to one absent
+# dependency.
+OPTIONAL_IMPORTS = ("torch",)
 
 # LLM backend.
 MODEL = "claude-opus-5"

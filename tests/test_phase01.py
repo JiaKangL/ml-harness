@@ -19,7 +19,7 @@ import unittest
 import numpy as np
 
 from harness import config as C
-from harness.holdout import load_test_labels
+from harness import holdout
 from harness.data_guard import (
     DataAPI,
     OutcomeColumnAccessError,
@@ -47,11 +47,12 @@ class TestTestSplitFirewall(unittest.TestCase):
         with np.load(C.SPLITS_NPZ) as z:
             self.assertNotIn(f"test__{C.LABEL}", z.files)
 
-    def test_holdout_exists_but_is_off_the_agent_path(self):
-        """Labels do exist -- they are simply not where the agent is pointed."""
-        labels = load_test_labels()
-        self.assertEqual(labels.shape[0], self.api.n_rows("test"))
-        self.assertNotIn(str(C.HOLDOUT_DIR), str(C.SPLITS_NPZ))
+    def test_no_test_label_artifact_exists_anywhere(self):
+        """The strongest form of the guarantee: nothing to read, not merely hidden.
+
+        A file that is never written cannot be found by a stray glob over cache/.
+        """
+        self.assertEqual(holdout.assert_no_holdout_artifact(), [])
 
     def test_test_features_are_still_available(self):
         """The firewall must not break the thing it protects: scoring test needs features."""
@@ -324,3 +325,74 @@ class TestQuarantineCheckCanFail(unittest.TestCase):
         api = DataAPI()
         self.assertIn("follow_user_num", api.side_columns()["user"])
         self.assertNotIn("follow_user_num", api.side_columns()["video"])
+
+
+class TestHoldoutSeal(unittest.TestCase):
+    """Test labels are reachable only after a converged run is sealed, and every
+    draw is recorded. The point is that the holdout cannot inform any decision the
+    loop makes -- not by convention, but because it does not exist yet."""
+
+    def setUp(self):
+        self._seal = C.RUN_SEAL_JSON.read_text() if C.RUN_SEAL_JSON.exists() else None
+        self._draws = (
+            C.SCORED_MARKER_JSON.read_text() if C.SCORED_MARKER_JSON.exists() else None
+        )
+        C.RUN_SEAL_JSON.unlink(missing_ok=True)
+        C.SCORED_MARKER_JSON.unlink(missing_ok=True)
+
+    def tearDown(self):
+        for path, saved in (
+            (C.RUN_SEAL_JSON, self._seal),
+            (C.SCORED_MARKER_JSON, self._draws),
+        ):
+            path.unlink(missing_ok=True)
+            if saved is not None:
+                path.write_text(saved)
+
+    def test_unsealed_run_cannot_read_test_labels(self):
+        self.assertFalse(holdout.is_sealed())
+        with self.assertRaises(holdout.RunNotSealedError):
+            holdout.extract_test_labels()
+
+    def test_sealed_run_can_read_once(self):
+        holdout.seal_run("node_07", "a" * 64, 0.6125, 14, "3 scored stalls")
+        labels = holdout.extract_test_labels()
+        self.assertEqual(labels.shape[0], 170_588)
+        self.assertEqual(labels.dtype, np.int64)
+        # The organizers' published test positive rate is ~0.313.
+        self.assertAlmostEqual(float(labels.mean()), 0.313, delta=0.01)
+
+    def test_second_draw_is_refused(self):
+        holdout.seal_run("node_07", "a" * 64, 0.6125, 14, "converged")
+        holdout.extract_test_labels()
+        with self.assertRaises(holdout.AlreadyScoredError):
+            holdout.extract_test_labels()
+
+    def test_forced_second_draw_is_recorded_not_silent(self):
+        holdout.seal_run("node_07", "a" * 64, 0.6125, 14, "converged")
+        holdout.extract_test_labels()
+        holdout.extract_test_labels(force=True)
+        draws = json.loads(C.SCORED_MARKER_JSON.read_text())
+        self.assertEqual(len(draws), 2)
+        self.assertTrue(draws[1]["forced_second_draw"])
+
+    def test_extracted_labels_align_with_test_features(self):
+        """Row order must match features("test") positionally, or the final score is
+        computed against the wrong rows while looking entirely plausible."""
+        holdout.seal_run("node_07", "a" * 64, 0.6125, 14, "converged")
+        labels = holdout.extract_test_labels()
+        api = DataAPI()
+        self.assertEqual(labels.shape[0], api.n_rows("test"))
+
+    def test_single_import_site(self):
+        """The audit trail is a one-line grep. Only score_final may import this."""
+        import subprocess
+
+        out = subprocess.run(
+            ["grep", "-rln", "--include=*.py", "extract_test_labels", "harness/", "tests/"],
+            cwd=C.ROOT, capture_output=True, text=True,
+        ).stdout.split()
+        self.assertEqual(
+            sorted(out), ["harness/holdout.py", "tests/test_phase01.py"],
+            f"unexpected importers of the holdout: {out}",
+        )

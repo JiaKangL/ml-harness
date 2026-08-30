@@ -28,6 +28,12 @@
       "seconds": 0.0
     },
     {
+      "name": "no holdout artifact",
+      "ok": true,
+      "detail": "no test-label file on disk",
+      "seconds": 0.0
+    },
+    {
       "name": "evaluate.py frozen",
       "ok": true,
       "detail": "sha256 ecfde28392eb14fe\u2026",
@@ -36,14 +42,14 @@
     {
       "name": "cache built",
       "ok": true,
-      "detail": "train 1,141,112 / valid 124,909 / test 170,588",
-      "seconds": 0.0
+      "detail": "rand_valid 288,338 / train 1,141,112 / valid 124,909 / test 170,588",
+      "seconds": 15.22
     },
     {
       "name": "row alignment",
       "ok": true,
       "detail": "cache order == data.load() for all splits",
-      "seconds": 3.78
+      "seconds": 3.74
     },
     {
       "name": "leakage firewall",
@@ -55,13 +61,7 @@
       "name": "random baseline",
       "ok": true,
       "detail": "valid primary 0.4827 vs expected 0.4834 (\u03940.0007, tol 0.001)",
-      "seconds": 0.4
-    },
-    {
-      "name": "FM baseline",
-      "ok": true,
-      "detail": "valid GAUC 0.6671 nDCG@5 0.5358 primary 0.6015 vs expected 0.6016 (\u03940.0001, tol 0.004)",
-      "seconds": 23.46
+      "seconds": 0.42
     }
   ]
 }

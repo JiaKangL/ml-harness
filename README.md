@@ -97,8 +97,22 @@ describing what the user *did* (play time, clicks, likes) only exist for the tra
 period. On the evaluation data they aren't hidden — they aren't loaded at all.
 
 **The agent must not see the test set.** The final score comes from data the agent is
-never allowed to look at. Its labels are stored separately, outside everything the
-agent is pointed at, and only one script may read them — once, at the very end.
+never allowed to look at — and we do not merely hide those labels, we **never write
+them down**. Nothing in `cache/` contains a test answer, so there is no file for a
+stray line of code to stumble onto.
+
+They are read exactly once, at the very end, straight from the organizer's original
+file, and only after the run has been *sealed* — a marker written when the loop
+finishes that records which attempt won. Asking for them before that raises an error.
+Asking a second time also raises, because scoring the held-out set twice quietly
+flatters the result; you can override it, and the override is written into a log that
+records every time test was ever touched.
+
+Being precise about the limit: the organizer's original CSV still contains those
+labels, and a program running as you could parse it. Truly preventing that needs a
+separate user account or a container, which is beyond this build. What we can say
+without qualification is that the harness never creates a copy, never holds one in a
+process that makes decisions, and cannot reach one before the run is over.
 
 One file, `video_features_statistic_pure.csv`, is excluded entirely. It looks like an
 ordinary "facts about each video" file, but its columns are totals counted across the

@@ -183,10 +183,21 @@ no hypothesis to test.
 **Leakage.** Post-impression outcome columns are materialised for `train` only —
 absent from evaluation-split arrays, not masked within them.
 
-**Test.** Test labels never load during the run; `labels("test")` raises. They sit in
-`cache/_holdout/`, which nothing in the agent's prompt or import path names. Only
-`score_final.py` reads them, once, after convergence. Harness improvements afterward
-go back to test-blind: a second draw makes the estimate optimistically biased.
+**Test.** Test labels are **never materialised**. Not to the cache, not to a holdout
+file — during a run there is no test-label artifact anywhere, so the guarantee is
+"nothing to read" rather than "hidden". `labels("test")` raises.
+
+`harness/holdout.py` is the sole path, and it is gated twice: it refuses unless the
+run is **sealed** (a marker the loop writes on convergence, naming the winning node
+and the submission hash), and refuses a second draw unless forced — a second draw on
+a held-out set makes the estimate optimistically biased, so the override is recorded
+in `logs/test_draws.json` rather than merely permitted. Every draw on test is in that
+file, permanently.
+
+Honest limit: the organizer's raw CSV still holds those labels and a process running
+as this user could parse it. Closing that needs a separate uid or a container, neither
+of which is in scope. What holds without qualification: the harness never creates a
+copy, never holds one in a decision-making process, and cannot reach one pre-seal.
 
 Additionally `video_features_statistic_pure.csv` is quarantined — dataset-wide
 aggregates of play/completion behaviour spanning the test window, disguised as an

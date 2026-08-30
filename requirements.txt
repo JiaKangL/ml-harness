@@ -1,5 +1,6 @@
-# Phase 0-1. The starter kit itself needs only numpy.
+# The starter kit itself needs only numpy. torch is added because the agent's
+# high-headroom directions (sequences, multi-task, censored watch-time regression)
+# otherwise require hand-rolled autograd, which burns repair attempts on gradient
+# bugs rather than ideas. The brief explicitly permits it.
 numpy==2.5.2
-
-# Phase 5 (agent loop) adds:
-# anthropic>=0.40
+torch==2.13.0

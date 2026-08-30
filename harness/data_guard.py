@@ -8,9 +8,10 @@ Two rules are enforced structurally rather than by instruction:
    so they are materialised for `train` only -- absent from the arrays returned for
    `valid`/`test`, not masked within them.
 
-2. **Test labels are not in the cache the agent reads.** They are written once to
-   `cache/_holdout/`, which nothing in the agent's prompt or import path mentions.
-   `labels("test")` raises.
+2. **Test labels are never written at all.** Not to the cache, not to a holdout file.
+   They are parsed from the organizer's raw log at scoring time, behind a seal that
+   only a converged run produces (`harness/holdout.py`). `labels("test")` raises, and
+   during a run there is no test-label artifact anywhere to stumble onto.
 
 This is defence in depth, not a sandbox: a generated script running on this machine
 could in principle re-parse the raw CSVs. The raw directory is never named to the
@@ -160,12 +161,11 @@ def build_cache(data_dir: Path | None = None, force: bool = False) -> dict[str, 
     # Both artifacts must exist. `cache/` is gitignored, so a partially restored cache
     # would otherwise let the run proceed and only surface the missing holdout at the
     # very end, when score_final.py needs it.
-    if C.SPLITS_NPZ.exists() and C.TEST_LABELS_NPY.exists() and not force:
+    if C.SPLITS_NPZ.exists() and not force:
         with np.load(C.SPLITS_NPZ) as z:
             return {s: int(z[f"{s}__user_id"].shape[0]) for s in C.SPLITS}
 
     C.CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    C.HOLDOUT_DIR.mkdir(parents=True, exist_ok=True)
 
     wanted = list(C.LOG_SAFE) + [C.LABEL] + list(C.LOG_OUTCOME)
     buckets: dict[str, dict[str, list[int]]] = {
@@ -211,8 +211,10 @@ def build_cache(data_dir: Path | None = None, force: bool = False) -> dict[str, 
             out[f"{split}__{col}"] = np.asarray(cols[col], dtype=_LOG_DTYPES[col])
 
         if split == "test":
-            # The one place test labels are written, outside the agent's cache.
-            np.save(C.TEST_LABELS_NPY, np.asarray(cols[C.LABEL], dtype=np.int8))
+            # Test labels are simply dropped. They are not written anywhere -- not to
+            # the cache, not to a holdout file. score_final re-parses them from the
+            # raw log at scoring time, behind a seal, so during a run no test-label
+            # artifact exists for anything to stumble onto.
             continue
 
         out[f"{split}__{C.LABEL}"] = np.asarray(cols[C.LABEL], dtype=np.int8)

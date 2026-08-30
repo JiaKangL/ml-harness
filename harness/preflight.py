@@ -130,6 +130,28 @@ def check_quarantine() -> Check:
     )
 
 
+def check_no_holdout_artifact() -> Check:
+    """Assert no materialised test-label file exists anywhere under cache/.
+
+    Inverted from the previous design, which checked that the holdout *did* exist. A
+    file that is never written cannot be read by accident, so the strongest version of
+    this check is that it finds nothing.
+    """
+    from . import holdout
+
+    offenders = holdout.assert_no_holdout_artifact()
+    if offenders:
+        return Check(
+            "no holdout artifact",
+            False,
+            f"materialised test labels found: {[str(p) for p in offenders]}",
+        )
+    sealed = " (run sealed)" if holdout.is_sealed() else ""
+    return Check(
+        "no holdout artifact", True, f"no test-label file on disk{sealed}"
+    )
+
+
 def check_evaluate_frozen() -> tuple[Check, str]:
     path = C.STARTER_KIT / "evaluate.py"
     if not path.exists():
@@ -306,6 +328,7 @@ def run(rebuild: bool = False, skip_fm: bool = False) -> PreflightReport:
         return report
 
     report.checks.append(check_quarantine())
+    report.checks.append(check_no_holdout_artifact())
     eval_check, digest = check_evaluate_frozen()
     report.checks.append(eval_check)
     report.environment["evaluate_sha256"] = digest
