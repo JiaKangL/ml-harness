@@ -1,0 +1,5 @@
+# Phase 0-1. The starter kit itself needs only numpy.
+numpy==2.5.2
+
+# Phase 5 (agent loop) adds:
+# anthropic>=0.40

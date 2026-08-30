@@ -1,0 +1,20 @@
+# Dataset: 200MB extracted, reproducible via scripts/get_data.sh
+kuairand-starter-kit/KuaiRand-Pure/
+kuairand-starter-kit/*.tar.gz
+
+# Derived artifacts, rebuilt by `python -m harness.preflight`
+cache/
+runs/
+
+# Secrets. Never commit; check history too, not just the tree.
+.env
+*.key
+
+# Environment
+.venv/
+__pycache__/
+*.py[cod]
+.DS_Store
+
+# Scratch
+harness_design.html
