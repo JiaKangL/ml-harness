@@ -589,17 +589,17 @@ class TestSubprocessDoorIsClosed(unittest.TestCase):
             ("posix_spawn", "import os\nos.posix_spawn('/bin/sh',[],{})"),
         ):
             with self.subTest(call=name):
-                fr = executor.lint_contract(code)
+                fr = ex.lint_contract(code)
                 self.assertIsNotNone(fr, f"{name} evaded the lint")
                 self.assertIn("no-subprocess", fr.traceback_tail)
 
     def test_legitimate_os_use_still_passes(self):
         """The rule must not break what candidates legitimately need."""
         self.assertIsNone(
-            executor.lint_contract("import os\nprint(os.environ.get('HOME'))")
+            ex.lint_contract("import os\nprint(os.environ.get('HOME'))")
         )
         self.assertIsNone(
-            executor.lint_contract(
+            ex.lint_contract(
                 "import numpy as np\nfrom harness.data_guard import DataAPI\n"
                 "api = DataAPI()\nnp.save('out.npy', np.zeros(3))"
             )
