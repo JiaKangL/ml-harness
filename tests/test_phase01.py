@@ -14,7 +14,10 @@ test framework first.
 from __future__ import annotations
 
 import json
+import tempfile
 import unittest
+from pathlib import Path
+from unittest import mock
 
 import numpy as np
 
@@ -333,21 +336,22 @@ class TestHoldoutSeal(unittest.TestCase):
     loop makes -- not by convention, but because it does not exist yet."""
 
     def setUp(self):
-        self._seal = C.RUN_SEAL_JSON.read_text() if C.RUN_SEAL_JSON.exists() else None
-        self._draws = (
-            C.SCORED_MARKER_JSON.read_text() if C.SCORED_MARKER_JSON.exists() else None
-        )
-        C.RUN_SEAL_JSON.unlink(missing_ok=True)
-        C.SCORED_MARKER_JSON.unlink(missing_ok=True)
+        """Redirect the seal and the draw ledger into a temp directory.
 
-    def tearDown(self):
-        for path, saved in (
-            (C.RUN_SEAL_JSON, self._seal),
-            (C.SCORED_MARKER_JSON, self._draws),
-        ):
-            path.unlink(missing_ok=True)
-            if saved is not None:
-                path.write_text(saved)
+        Not save-and-restore: that worked only if `tearDown` ran, and a run killed
+        mid-test therefore left a *forged seal* -- `node_07`, sha `aaaa...` -- sitting
+        in `logs/`, where it would unlock the test labels for `score_final.py` and,
+        if committed, for anyone cloning the repository. A test that can write the real
+        seal is a hole in the firewall it exists to prove.
+        """
+        self._dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self._dir.cleanup)
+        d = Path(self._dir.name)
+        for attr, name in (("RUN_SEAL_JSON", "run_seal.json"),
+                           ("SCORED_MARKER_JSON", "test_draws.json")):
+            patch = mock.patch.object(C, attr, d / name)
+            patch.start()
+            self.addCleanup(patch.stop)
 
     def test_unsealed_run_cannot_read_test_labels(self):
         self.assertFalse(holdout.is_sealed())
