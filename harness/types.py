@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
+from pathlib import Path
 from typing import Literal
 
 Split = Literal["train", "valid", "test"]
@@ -211,3 +212,25 @@ class ConvergenceState:
     stalled_iterations: int  # >= STALL_TRIGGER fires the critics
     best_primary: float
     reason: str = ""
+
+
+@dataclass(frozen=True)
+class RunResult:
+    """One supervised execution of agent-written code.
+
+    Lives here rather than in `executor.py` because L2 already codes against it:
+    `Evaluator.build_submission` takes an injected runner and reads `.ok` and
+    `.scores_path` off whatever it returns. A dataclass defined inside L3 would force
+    L2 to duck-type its way around a layer it may not import.
+
+    `failure` is populated for every non-ok result; `resources` is populated always,
+    including on failure -- the peak RSS and wall time of a run that died are exactly
+    the facts the loop feeds back to the LLM.
+    """
+
+    ok: bool
+    scores_path: "Path | None"
+    resources: ResourceFacts
+    stdout_path: "Path | None" = None
+    stderr_path: "Path | None" = None
+    failure: FailureRecord | None = None

@@ -219,9 +219,13 @@ GROUNDING_FUZZY_CUTOFF = 0.6
 # Libraries the agent may import. Verified at preflight so that a missing dependency
 # surfaces as a harness fault rather than being misread as a broken candidate.
 # The prompt states this list verbatim; anything outside it is a contract violation.
+# `argparse` is on the list because the candidate script contract is a CLI --
+# `--split/--seed/--out/--frac` -- so every candidate must parse arguments. Without it
+# the lint would reject the one shape we ask the agent to produce.
 ALLOWED_IMPORTS = ("numpy", "math", "csv", "json", "collections", "itertools",
                    "random", "time", "os", "sys", "pathlib", "dataclasses", "typing",
-                   "functools", "heapq", "statistics", "warnings", "abc", "enum")
+                   "functools", "heapq", "statistics", "warnings", "abc", "enum",
+                   "argparse")
 
 # Import-checked at preflight and stated verbatim in the prompt. Without the check, a
 # missing package reads as a broken candidate: the agent concludes its *idea* failed,

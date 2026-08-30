@@ -6,6 +6,30 @@ occasionally succeeds while producing nonsense; all three must be survivable.
 
 **Depends on:** L1 only. **Must not import:** memory, logger, agent, loop.
 
+## The candidate script contract
+
+Decided here, once. The executor builds the argv, the lint decides what a candidate may
+import in order to satisfy it, and L5 pastes it into the prompt -- three consumers, so
+it lives in exactly one place: `executor.CANDIDATE_CONTRACT`.
+
+    python <candidate.py> --split {train|valid|test} --seed <int> --out <path.npy> [--frac <float>]
+
+- Writes a **float64 `.npy` array of scores, one per row of the requested split**, in
+  the split's canonical row order: row *i* of the array scores row *i* of the split.
+- Obtains data via `from harness.data_guard import DataAPI`. The repo root is on
+  `PYTHONPATH`; the harness sets it, the script must not.
+- `--frac` is used only by the smoke run and means *use this fraction of USERS for
+  training*. **Sample users, not rows.** Ranking is scored within user, so a 1% row
+  sample shreds the impression groups and produces a meaningless run that may fail for
+  reasons unrelated to the candidate's logic -- and the agent then spends a repair
+  attempt on a bug the harness invented. The script must still emit scores for **all**
+  rows of the requested split.
+- Exit 0 on success.
+
+`argparse` is therefore on `ALLOWED_IMPORTS`: the contract is a CLI, so every candidate
+must parse arguments, and a lint that rejected the one shape the prompt asks for would
+fail every candidate in the run.
+
 ## Five stages, cheapest first
 
 1. `ast.parse` — syntax.
@@ -97,22 +121,46 @@ on *how* a failure is handled, not on whether one occurred.
 
 ## Contract
 
+`RunResult` lives in `harness/types.py`, not here: L2 already codes against it
+(`Evaluator.build_submission` reads `.ok` and `.scores_path` off whatever its injected
+runner returns), and a dataclass defined inside L3 would force L2 to duck-type its way
+around a layer it may not import.
+
 ```python
-@dataclass(frozen=True)
-class RunResult:
-    ok: bool
-    scores_path: Path | None
-    resources: ResourceFacts          # wall_seconds, peak_rss_bytes, killed_by
-    stdout_path: Path; stderr_path: Path
-    failure: FailureRecord | None
+class HarnessDependencyError(RuntimeError): ...   # a declared library will not import
+class ProcessGroupEscapeError(RuntimeError): ...  # a PID survived SIGTERM and SIGKILL
+
+def check_imports(modules: tuple[str, ...] | None = None) -> dict[str, str]: ...
+def failure_signature(exc_type: str, message: str, frame: str = "") -> str: ...
+def parse_traceback(text: str) -> tuple[str, str, str]: ...   # (type, message, frame)
+def group_pids(pgid: int) -> list[int]: ...                   # live, non-zombie
 
 class Executor:
     def check_syntax(self, code: str) -> FailureRecord | None: ...
     def lint_contract(self, code: str) -> FailureRecord | None: ...
-    def smoke(self, code: str, node_id: str) -> RunResult: ...
-    def run(self, code: str, node_id: str, split: Split, seed: int) -> RunResult: ...
-    def validate_output(self, scores_path: Path, split: Split) -> FailureRecord | None: ...
+    def smoke(self, code: str | Path, node_id: str, split: Split = "valid",
+              seed: int = 42) -> RunResult: ...
+    def run(self, code: str | Path, node_id: str, split: Split = "valid",
+            seed: int = 42, timeout_s: float | None = None) -> RunResult: ...
+    def validate_output(self, scores_path: Path, split: Split,
+                        structural_only: bool = False) -> FailureRecord | None: ...
 ```
+
+`code` accepts source text *or* the path of a stored candidate. P2's `Runner` protocol
+is `Callable[[str, str, Split, int], RunResult]` and passes `node.code_path`, while this
+plan named the same parameter `code: str` and meant source; rather than have the loop
+remember which is which, a single-line string ending in `.py` that exists on disk is
+read as a path and anything else is treated as source.
+
+`structural_only` is what smoke passes. Smoke validates that the file exists, is finite
+and has the right length, but **not** within-user variance: on 1% of users a legitimate
+model can collapse to a constant for reasons that say nothing about the code, and a
+smoke failure would send the agent off repairing a bug the harness invented. Variance is
+a silent-wrong check and belongs at full scale.
+
+A smoke-stage failure is classified `SMOKE` whatever the symptom -- the *stage*, not the
+symptom, decides whether the repair is free. The symptom is not lost: `killed_by` on the
+returned `ResourceFacts` still says whether it was a timeout.
 
 ## Acceptance tests — `tests/test_executor.py`
 
@@ -131,3 +179,9 @@ class Executor:
 | Circuit breaker | 3 failed repairs mark the node FAILED and revert to parent |
 | Breaker is logged | All 3 attempts appear in the iteration log, not just the last |
 | Import preflight | A missing optional library fails as a harness fault, not a candidate bug |
+| RSS watchdog | A candidate over its cap is killed and classified OOM, with the peak in the message |
+| Per-user constant | Scores that vary across users but not within them are rejected |
+| Comments are not code | `# never read test_labels` lints clean; the lint is AST, not substring |
+
+Circuit-breaker and iteration-log rows belong to the loop (L6) and L4 and are tested
+there; L3's half of them is the `FailureClass` and the signature, both covered above.

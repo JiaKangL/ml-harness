@@ -385,7 +385,15 @@ class TestHoldoutSeal(unittest.TestCase):
         self.assertEqual(labels.shape[0], api.n_rows("test"))
 
     def test_single_import_site(self):
-        """The audit trail is a one-line grep. Only score_final may import this."""
+        """The audit trail is a one-line grep: every file that so much as names the
+        holdout, and why it is allowed to.
+
+        Only two of these can reach a test label. `harness/executor.py` names it in
+        order to REJECT it -- the contract lint has to know the word to forbid it --
+        and `tests/test_executor.py` asserts that the rejection works. Listing them
+        here rather than loosening the grep keeps the property the check exists for: a
+        fifth file appearing is a test failure that somebody has to justify.
+        """
         import subprocess
 
         out = subprocess.run(
@@ -393,6 +401,12 @@ class TestHoldoutSeal(unittest.TestCase):
             cwd=C.ROOT, capture_output=True, text=True,
         ).stdout.split()
         self.assertEqual(
-            sorted(out), ["harness/holdout.py", "tests/test_phase01.py"],
-            f"unexpected importers of the holdout: {out}",
+            sorted(out),
+            [
+                "harness/executor.py",   # forbids the name; never calls it
+                "harness/holdout.py",    # defines it
+                "tests/test_executor.py",  # asserts the lint rejects it
+                "tests/test_phase01.py",   # asserts the seal
+            ],
+            f"unexpected files naming the holdout: {out}",
         )
