@@ -32,9 +32,27 @@ what actually degrade a long context.
 ## `llm.py` — thin client
 
 - Claude Opus 5, adaptive thinking, streaming (long turns must not hit HTTP timeouts).
-- **Explicit `cache_control` on tier A's last block with `ttl: "1h"`** — iterations run
-  ~7 min apart, past the 5-minute default. No timestamp, no iteration number, nothing
-  dynamic in tier A; a single byte breaks it and the failure is silent.
+### The cache breakpoint
+
+Place **one explicit `cache_control` breakpoint immediately after the static prefix**
+— system prompt + task rules + starter-kit constraints + dead ends +
+`data_profile.json`. Everything dynamic (trunk code, active ledger, recent diff, error
+tracebacks) is appended strictly *after* it. Target: 80%+ of prompt tokens served from
+cache across iterations.
+
+```python
+system=[{"type": "text", "text": STATIC_PREFIX,
+         "cache_control": {"type": "ephemeral", "ttl": "1h"}}]
+```
+
+**The `ttl` is not optional.** Bare `{"type": "ephemeral"}` is the **5-minute** TTL.
+An iteration is roughly 3–5 minutes with numpy FM and longer with torch, so it
+straddles that boundary — we would get erratic or zero cache hits and never notice,
+because a cache miss raises nothing and shows up only on the bill. The 1h TTL costs 2×
+on write and breaks even after three reads; we will have ~30.
+
+Tier A must be **byte-identical** across calls: no timestamp, no iteration number, no
+conditionally-included section. A single byte invalidates everything after it.
 - Per-turn operator instructions go in as `{"role": "system"}` *messages*, preserving
   the cached prefix rather than invalidating it.
 - Token/cost accounting per call, including cache-read/write fields.
@@ -45,17 +63,44 @@ Expect ~$0.25–0.30/iteration, ~$20–30 for a full run. Cost is not a constrai
 
 ## `agent.py` — context assembly + proposal validation
 
-Parses the structured output into a `Proposal` and **rejects before execution**:
+Parses the structured output into a `Proposal`.
 
-- missing `grounding` (no cited data-profile fact) — the anti-score-chasing gate
-- missing `predicted_delta`
+### Grounding resolution is advisory, not blocking
+
+A proposal cites a field from `data_profile.json` as its motivation. Resolve it in
+three tiers:
+
+1. **Exact match** against the profile's key set.
+2. **Fuzzy match** — `difflib.get_close_matches(key, profile_keys, n=1, cutoff=0.6)`
+   — which absorbs paraphrase (`"tab_variance"` → `"within_user_variance.tab"`).
+3. **Unresolvable** → set `grounding_verified=False` on the node, log a warning, and
+   **execute anyway**.
+
+Never drop runnable code over a grounding typo. The purpose of the field is to make
+the agent reason from measured data rather than from score feedback; a paraphrased key
+still demonstrates that, and refusing to run costs a real iteration to punish a
+spelling mistake. The `grounding_verified` flag makes the rate visible in the log,
+which is the honest way to report it.
+
+### Still rejected before execution (zero compute cost)
+
+- missing `predicted_delta` — without it the iteration is a search step, not a test
 - an `axis` outside the closed set
 - `axis == "architecture"` before all four priority axes have a scored attempt
 - a diff touching **only** the `FIELDS` list or an embedding-dim constant — a known
-  dead end, rejected at zero compute cost
+  dead end with published counter-evidence
+- an import outside `ALLOWED_IMPORTS` + `OPTIONAL_IMPORTS`
 
-Failure-context assembly: traceback tail (~40 lines), the failing frame ±15 lines, and
-the list of repairs already attempted on this node so it does not loop the same fix.
+### Self-healing loop
+
+Failure context sent back to the model: `stderr` tail (~40 lines), the failing frame
+±15 lines, and the list of repairs already attempted on this node so it does not loop
+the same fix.
+
+`MAX_SELF_HEAL_ATTEMPTS = 3`. After the third consecutive failure the node is marked
+`FAILED`, all three attempts are written to `iteration_logs.json`, the loop reverts to
+the parent node and moves on. Robustness is scored on *how* a failure is handled, so
+the full recovery record is the deliverable — not just the final outcome.
 
 ## `loop.py` — the orchestrator
 
@@ -98,6 +143,12 @@ API calls*.
 | Test | Passes when |
 |---|---|
 | Cache holds | Two consecutive calls report `cache_read_input_tokens > 0` |
+| Cache TTL | The request carries `ttl: "1h"`, not bare ephemeral |
+| Cache share | Cached tokens are >= 60% of prompt tokens by iteration 3 |
+| Grounding fuzzy | A paraphrased key resolves via difflib and still runs |
+| Grounding advisory | An unresolvable key sets grounding_verified=False and still runs |
+| Circuit breaker | 3 failed repairs mark FAILED and revert to parent |
+| Usage captured | prompt_tokens/completion_tokens recorded on every call incl. repairs |
 | Prefix frozen | Tier A is byte-identical across 5 assemblies |
 | Grounding enforced | A proposal citing no data-profile fact is rejected pre-execution |
 | Dead-end rejection | A FIELDS-only diff is rejected without running |

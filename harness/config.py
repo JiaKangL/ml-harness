@@ -158,7 +158,24 @@ BASELINE_TEST = {"GAUC": 0.6610, "nDCG@5": 0.5282, "primary": 0.5946}
 
 # ---------------------------------------------------------------- run policy
 
-CONFIRM_SEEDS = (42, 43, 44)  # every scored candidate runs all three
+# Two-tier seed ladder. Seed 42 runs first; a clear regression is pruned there, and
+# survivors run the remaining seeds. We prune early but NEVER promote early.
+#
+# sigma(single seed) ~ 0.0011, so sigma(3-seed mean) ~ 0.00064:
+#   +0.002 at 1 seed  = 1.8 sigma  -> noise
+#   +0.002 at 3 seeds = 3.1 sigma  -> signal
+# Three seeds is precisely what makes the organizers' own epsilon usable as a
+# promotion threshold rather than merely as a convergence-reporting rule.
+SEED_LADDER = (42, (43, 44))
+CONFIRM_SEEDS = (42, 43, 44)
+
+# Prune after seed 42 alone. At -0.005 this is ~6 sigma below a promotable candidate,
+# so it is extremely safe -- but it only catches badly-broken-yet-running candidates,
+# since a merely neutral one scores ~0.000 and survives to 3 seeds anyway. Tightening
+# to -0.002 is still 3.6 sigma (loses a good candidate ~0.02% of the time) and prunes
+# considerably more wall-clock. One-line change if we want the extra speed.
+PRUNE_AT_ONE_SEED_DELTA = -0.005
+PROMOTE_DELTA = 0.002  # required 3-seed mean improvement over the parent
 EPSILON = 0.002  # organizers' convergence threshold
 N_CONVERGE = 3  # organizers' consecutive-iteration count
 STALL_TRIGGER = 2  # fire critics one iteration BEFORE formal convergence
@@ -173,10 +190,25 @@ SMOKE_TIMEOUT_S = 30
 SMOKE_FRACTION = 0.01
 RSS_CAP_BYTES = 9 * 1024**3  # of 18 GB physical
 
-# Self-healing. Syntax and smoke failures are repaired without spending an
-# iteration; a full-run traceback gets one repair before the branch is abandoned.
+# Self-healing circuit breaker. Syntax and smoke failures are repaired without
+# spending an iteration. After 3 consecutive failed repairs the node is marked FAILED,
+# the traceback is logged, and the loop reverts to the parent node -- a repair loop
+# that keeps regenerating the same fix is the most common way an agent harness
+# converts its entire budget into nothing.
 MAX_SELF_HEAL_ATTEMPTS = 3
-MAX_IDENTICAL_FAILURES = 2  # same (exc type, message, frame) twice -> prune
+MAX_IDENTICAL_FAILURES = 2  # same (exc type, message, frame) twice -> prune early
+
+# Grounding resolution is advisory, not blocking. A proposal cites a data_profile
+# field; we resolve it exactly, then by fuzzy match, and if neither works we record
+# grounding_verified=False and run it anyway. Never drop runnable code over a typo.
+GROUNDING_FUZZY_CUTOFF = 0.6
+
+# Libraries the agent may import. Verified at preflight so that a missing dependency
+# surfaces as a harness fault rather than being misread as a broken candidate.
+# The prompt states this list verbatim; anything outside it is a contract violation.
+ALLOWED_IMPORTS = ("numpy", "math", "csv", "json", "collections", "itertools",
+                   "random", "time", "os", "sys", "pathlib", "dataclasses", "typing")
+OPTIONAL_IMPORTS = ()  # populated once the torch/lightgbm decision is made
 
 # LLM backend.
 MODEL = "claude-opus-5"

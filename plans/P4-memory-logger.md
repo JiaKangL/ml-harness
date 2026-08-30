@@ -56,11 +56,38 @@ iteration 7 trains 40 epochs across 3 seeds, that is *one* entry reporting mean 
 Each entry carries:
 
 - `hypothesis` — what and **why** (scored under Innovation)
-- `axis`, `grounding` (the cited data-profile fact), `predicted_delta` vs realised
-- unified `diff` against the parent node
+- `axis`, `grounding` (the cited data-profile fact), `grounding_verified` (bool),
+  `predicted_delta` vs realised
+- **`change_summary`** — one line, e.g. *"Rewrote numpy FM as PyTorch DeepFM with
+  pairwise BPR"* — plus **`diff`**, the raw unified diff against the parent
+
+### Two diff consumers, two representations
+
+When the agent switches from numpy FM to PyTorch DeepFM, `difflib` emits a ~300-line
+diff. Store **both** forms, because they serve different readers:
+
+| Consumer | Gets | Why |
+|---|---|---|
+| `iteration_logs.json` (judges, parsers) | `change_summary` **and** full `diff` | The summary keeps the log scannable; the raw diff is the evidence and must not be truncated in a graded deliverable |
+| The next prompt (tier C) | `change_summary` only, plus the diff if under a line budget | Context is a budget; a 300-line diff of code the agent just wrote adds nothing it does not already know |
+
+A rewrite is detected by diff size relative to the parent (say >60% of lines changed)
+and labelled as a rewrite rather than an edit, so the ledger can distinguish
+"modified the loss" from "replaced the model".
 - `metrics` — GAUC and nDCG@5 **separately**, both splits, with seed count and std
 - `errors` — every recovery event: class, signature, repair attempts, resolution
-- `resources` — wall time, peak RSS; `tokens` — in/out/cached, cost
+- `resources` — wall time per stage (generation / smoke / each seed), peak RSS
+- `tokens` — **`prompt_tokens`, `completion_tokens`**, `cache_read`, `cache_write`,
+  and derived `cost_usd`, per call and cumulative for the run
+
+### Resource metering is scored
+
+Feasibility & Practicality is 15% of the rubric and is graded on *total token
+consumption and agent wall-clock to reach the converged result*. That makes metering a
+deliverable, not telemetry. `llm.py` must extract usage off **every** API response —
+including repair calls and critic calls, which are easy to forget and are exactly the
+calls that inflate the total. `logger.py` records per-step and cumulative figures, and
+the run summary reports the totals the rubric asks for.
 
 Plus one run-level summary: **manual intervention count** (target 0) and the
 predicted-vs-realised calibration correlation.
@@ -79,4 +106,7 @@ atomic (temp + `os.replace`) so a kill at hour 5 never truncates the deliverable
 | Ledger tri-state | A +0.001 single-seed result records INCONCLUSIVE, not KEEP |
 | Dead ends seeded | The three published dead ends are present with mechanisms at init |
 | Atomic log write | A kill during `log()` leaves the previous file intact |
-| Log schema | Every entry has hypothesis, diff, both metrics, errors, tokens |
+| Log schema | Every entry has hypothesis, change_summary, diff, both metrics, errors, tokens |
+| Rewrite labelled | A >60%-changed diff is recorded as a rewrite, not an edit |
+| Token accounting | Repair and critic calls are included in the cumulative total |
+| Cumulative metering | Run summary reports total prompt+completion tokens and wall-clock |

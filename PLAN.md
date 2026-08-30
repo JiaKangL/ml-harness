@@ -130,8 +130,8 @@ class Metrics:            # one scored evaluation, possibly averaged over seeds
 class Proposal:           # the agent's structured output contract
     hypothesis: str       # what and WHY -- directly scored under Innovation
     axis: Axis
-    grounding: str        # a named field from data_profile.json. Absent -> rejected
-    predicted_delta: float
+    grounding: str        # a named field from data_profile.json; resolved fuzzily
+    predicted_delta: float    # required -- absent means there is no hypothesis
     code: str
 
 @dataclass
@@ -140,6 +140,8 @@ class Node:               # one attempt; immutable once scored
     proposal: Proposal; status: NodeStatus
     code_path: str; code_sha256: str
     valid: Metrics | None = None
+    grounding_verified: bool = True
+    change_summary: str = ""   # one line; the raw diff lives beside it in the log
     failures: list[FailureRecord] = field(default_factory=list)
     resources: ResourceFacts | None = None
     tokens: TokenUsage | None = None
@@ -151,10 +153,17 @@ class Insight:            # ledger entry, keyed by (axis, technique)
     n_seeds: int; mechanism: str      # WHY -- mechanisms generalise, bans decay
 ```
 
-**`grounding` and `predicted_delta` are the anti-score-chasing mechanism.** A proposal
-that cannot name a measured fact motivating it, or predict its own effect, is
-rejected before execution at zero compute cost. Predicted-vs-realised correlation is
-then tracked as a *metric about the agent* — reasoning versus guessing.
+**`grounding` and `predicted_delta` are the anti-score-chasing mechanism.** Each
+proposal names a measured fact that motivates it and predicts its own effect, so an
+iteration is a hypothesis test rather than a search step. Predicted-vs-realised
+correlation is then tracked as a *metric about the agent* — reasoning versus guessing.
+
+Grounding resolution is **advisory, not blocking**: exact match, then fuzzy match
+(`difflib`, cutoff 0.6) to absorb paraphrase, and if still unresolvable we record
+`grounding_verified=False`, warn, and run it anyway. Refusing to run costs a real
+iteration to punish a spelling mistake; the flag makes the rate visible instead.
+A missing `predicted_delta` **is** still rejected pre-execution — without it there is
+no hypothesis to test.
 
 ---
 

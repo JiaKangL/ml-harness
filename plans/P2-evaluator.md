@@ -21,9 +21,38 @@ FM's seed-to-seed std is **0.0008**. Over K candidate evaluations the expected b
 | 50 | +0.0033 |
 
 The competition ships the **validation-best checkpoint**, so an evaluator that
-promotes on a single sample will hand the judges a lucky seed. The organizers' own
-ε=0.002 sits *inside* that noise band — it is a fine convergence-reporting rule and an
-unusable promotion criterion. Hence: three seeds, always, promote on the mean.
+promotes on a single sample will hand the judges a lucky seed.
+
+**Three seeds is what makes ε=0.002 usable as a promotion threshold.** σ(single seed)
+≈ 0.0011, so σ(3-seed mean) ≈ 0.00064:
+
+| | +0.002 is | verdict |
+|---|---|---|
+| 1 seed | 1.8 σ | noise |
+| 3-seed mean | 3.1 σ | signal |
+
+So the organizers' own ε goes from a convergence-reporting rule to a defensible
+promotion criterion, purely by averaging. Over ~30 candidates at 3.1σ the expected
+false promotions are ≈0.03.
+
+## The two-tier seed ladder (wall-clock)
+
+Running 3 seeds on everything triples execution time. The ladder prunes early but
+**never promotes early**:
+
+1. **Run seed 42 alone.** If Δ ≤ `PRUNE_AT_ONE_SEED_DELTA` (−0.005), prune the node
+   immediately at one seed — a clear regression needs no confirmation.
+2. **Otherwise run seeds 43 and 44.** Promote only if the 3-seed mean beats the parent
+   by ≥ `PROMOTE_DELTA` (+0.002).
+
+Asymmetry is the point: an early *prune* costs us only a candidate that was already
+6σ below promotable, whereas an early *promote* is exactly the lucky-seed failure this
+module exists to prevent.
+
+> **Tuning note.** −0.005 is ~6σ and very safe, but it only catches
+> badly-broken-yet-running candidates: a merely neutral candidate scores ≈0.000 and
+> survives to 3 seeds anyway. −0.002 is still 3.6σ (loses a good candidate ~0.02% of
+> the time) and prunes considerably more. One-line change in `config.py`.
 
 ---
 
@@ -40,8 +69,11 @@ class Evaluator:
     def aggregate(self, per_seed: list[Metrics]) -> Metrics:
         """Mean across seeds, with primary_std populated."""
 
+    def gate_first_seed(self, candidate: Metrics, incumbent: Metrics) -> LadderDecision:
+        """Tier 1. Returns PRUNE (clear regression) or CONTINUE. Never PROMOTE."""
+
     def gate(self, candidate: Metrics, incumbent: Metrics) -> GateDecision:
-        """Promote iff mean primary beats incumbent by > EPSILON across all seeds,
+        """Tier 2. Promote iff the 3-seed mean beats the incumbent by >= PROMOTE_DELTA
         and the candidate is not quarantined."""
 
     def convergence(self, history: list[Metrics]) -> ConvergenceState:
@@ -109,6 +141,9 @@ submission unreproducible and unauditable. The stored source is the artifact.
 | **The headline test** | Evaluator **refuses to promote** the official FM re-run under a different seed. If it promotes that, it will promote noise for six hours. |
 | Genuine gain promotes | A synthetic +0.01 shift across all three seeds is promoted |
 | Borderline gain rejected | A +0.0015 mean (inside the noise band) is not promoted |
+| Ladder prunes early | A −0.01 first seed prunes without running seeds 43/44 |
+| Ladder never promotes early | A +0.05 first seed still runs all three seeds |
+| Ladder escalates | A −0.001 first seed (above the prune bar) triggers seeds 43/44 |
 | Std is populated | `aggregate()` reports non-zero `primary_std` for differing seeds |
 | Quarantine fires | Feeding true labels as scores (primary ≈ 0.85) sets `quarantined=True`, `promote=False` |
 | Convergence ignores crashes | 3 failed iterations do not count toward N=3 |

@@ -19,9 +19,33 @@ occasionally succeeds while producing nonsense; all three must be survivable.
 
 ## Runtime requirements
 
-- `start_new_session=True`, then `killpg(SIGTERM)` → 5s grace → `SIGKILL`. Verify the
-  group is empty before the next launch. Without this a torch DataLoader's workers
-  outlive the kill and steal cores from the next iteration, corrupting every timing.
+### Process-tree termination
+
+`proc.kill()` signals only the direct child. PyTorch DataLoader workers, and any
+BLAS thread pool, survive it — they then steal cores from the next iteration and
+corrupt every timing measurement we take afterwards.
+
+Spawn into a **new process group** (`start_new_session=True`, equivalently
+`preexec_fn=os.setsid` on Unix) and terminate the whole tree:
+
+```python
+os.killpg(os.getpgid(proc.pid), signal.SIGTERM)   # 5s grace
+os.killpg(os.getpgid(proc.pid), signal.SIGKILL)   # then force
+```
+
+Verify the group is empty before the next launch; a surviving PID is a test failure,
+not a warning.
+
+### Library preflight
+
+The starter kit is pure numpy, but the agent will generate torch or LightGBM code. At
+runner startup, import-check everything in `config.ALLOWED_IMPORTS` +
+`OPTIONAL_IMPORTS` **once**, and fail loudly as a *harness* fault. Otherwise a missing
+dependency reads as a broken candidate, the agent burns repair attempts on code that
+was correct, and the ledger records a false DISCARD that poisons every later prompt.
+
+The prompt states the available library list verbatim; anything outside it is a
+contract violation caught at lint, before execution.
 - **stdout/stderr to files, never `PIPE`.** Killing a piped process discards its
   buffered output — the timeout case is exactly when the traceback matters most.
 - Out-of-band RSS watchdog at 1 Hz, kill at `RSS_CAP_BYTES`. `RLIMIT_AS` is unreliable
@@ -48,9 +72,22 @@ Not every failure costs an iteration. This distinction is the Robustness story.
 | Timeout / OOM | Feed back the resource fact (peak RSS, wall time) | yes |
 | Silent-wrong | Abandon branch | yes |
 
-Dedupe by exception signature `(type, normalised message, frame)`: the same failure
-twice means stop repairing and prune. Repair loops that regenerate the same fix are
-the most common way an agent harness converts its whole budget into nothing.
+### The circuit breaker
+
+Hard limit of `MAX_SELF_HEAL_ATTEMPTS = 3` repairs per iteration. On each failure the
+`stderr` tail plus the failing frame goes back to the LLM for a patch. After the third
+consecutive failure:
+
+1. mark the node `FAILED`,
+2. log the traceback and every repair attempt into `iteration_logs.json`,
+3. revert to the parent node,
+4. move to the next iteration.
+
+Additionally dedupe by exception signature `(type, normalised message, frame)`: the
+same failure twice short-circuits the breaker early. Repair loops that regenerate the
+same fix are the most common way an agent harness converts its whole budget into
+nothing — and the recovery record is itself graded under Robustness, which is scored
+on *how* a failure is handled, not on whether one occurred.
 
 ## Contract
 
@@ -85,3 +122,6 @@ class Executor:
 | Smoke is fast | A script that would take 5 min fails smoke in < 35s |
 | Determinism | Same seed twice → identical scores |
 | Signature dedupe | The same traceback twice stops the repair loop |
+| Circuit breaker | 3 failed repairs mark the node FAILED and revert to parent |
+| Breaker is logged | All 3 attempts appear in the iteration log, not just the last |
+| Import preflight | A missing optional library fails as a harness fault, not a candidate bug |
