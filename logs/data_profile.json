@@ -1,0 +1,199 @@
+{
+ "task": "within-user ranking of logged impressions; label long_view (0/1)",
+ "metric": "primary = mean(GAUC, nDCG@5); baseline to beat = 0.5946 on hidden test",
+ "splits": {
+  "train": {
+   "rows": 1141112,
+   "users": 26210,
+   "videos": 7538,
+   "impressions_per_user": {
+    "p10": 5,
+    "p25": 13,
+    "p50": 31,
+    "p75": 59,
+    "p90": 97
+   },
+   "positive_rate": 0.337,
+   "user_composition": {
+    "all_negative_pct": 5.1,
+    "all_positive_pct": 2.3,
+    "discriminative_pct": 92.7
+   }
+  },
+  "valid": {
+   "rows": 124909,
+   "users": 22377,
+   "videos": 5951,
+   "impressions_per_user": {
+    "p10": 1,
+    "p25": 2,
+    "p50": 4,
+    "p75": 7,
+    "p90": 12
+   },
+   "users_with_at_most_n_impressions_pct": {
+    "<=1": 17.5,
+    "<=3": 45.3,
+    "<=5": 63.7,
+    "<=10": 87.0
+   },
+   "unseen_video_pct": 0.01,
+   "unseen_user_pct": 1.59,
+   "duplicate_user_video_pct": 2.86,
+   "positive_rate": 0.313,
+   "user_composition": {
+    "all_negative_pct": 30.3,
+    "all_positive_pct": 11.9,
+    "discriminative_pct": 57.8
+   }
+  },
+  "test": {
+   "rows": 170588,
+   "users": 23875,
+   "videos": 5982,
+   "impressions_per_user": {
+    "p10": 1,
+    "p25": 2,
+    "p50": 5,
+    "p75": 9,
+    "p90": 16
+   },
+   "users_with_at_most_n_impressions_pct": {
+    "<=1": 13.6,
+    "<=3": 36.8,
+    "<=5": 54.6,
+    "<=10": 79.4
+   },
+   "unseen_video_pct": 0.01,
+   "unseen_user_pct": 3.62,
+   "duplicate_user_video_pct": 3.06
+  }
+ },
+ "within_user_variance": {
+  "_why": "ranking is within-user, so a feature contributes ONLY through the fraction of groups in which it varies; a per-user constant cancels out of that user's ordering exactly. This is why pure user-side features score 0, and it is arithmetic, not an experiment.",
+  "valid": {
+   "video_id": 0.991,
+   "author_id": 0.991,
+   "duration_bucket_10s": 0.98,
+   "hourmin": 0.959,
+   "tab": 0.483,
+   "date": 0.909
+  },
+  "test": {
+   "video_id": 0.992,
+   "author_id": 0.991,
+   "duration_bucket_10s": 0.981,
+   "hourmin": 0.972,
+   "tab": 0.518,
+   "date": 0.954
+  }
+ },
+ "train_history_per_user": {
+  "_why": "feasibility gate for sequence models (DIN/SIM); measured, not quoted",
+  "p10": 5,
+  "p25": 13,
+  "p50": 31,
+  "p75": 59,
+  "p90": 97,
+  "max": 809,
+  "mean": 43.5
+ },
+ "item_level_signal": {
+  "n_videos": 3552,
+  "long_view_rate": {
+   "p10": 81,
+   "p25": 170,
+   "p50": 298,
+   "p75": 424,
+   "p90": 522
+  },
+  "_units": "long_view rate x1000, videos with >=50 train impressions"
+ },
+ "aux_signal_correlation_with_label": {
+  "_why": "train-only auxiliary targets for multi-task learning. play_time_ms is near-deterministic of the label (long_view is a threshold on play_time/duration) -- legitimate as a training target, catastrophic as an inference feature. The DataAPI makes the latter impossible.",
+  "is_click": 0.76,
+  "play_time_ms": 0.635,
+  "comment_stay_time": 0.168,
+  "is_profile_enter": 0.146,
+  "is_like": 0.099,
+  "is_comment": 0.059,
+  "is_follow": 0.025,
+  "is_forward": 0.023,
+  "profile_stay_time": 0.005,
+  "is_hate": -0.004
+ },
+ "column_legality": {
+  "safe_any_split": [
+   "user_id",
+   "video_id",
+   "date",
+   "hourmin",
+   "time_ms",
+   "tab",
+   "is_rand",
+   "duration_ms"
+  ],
+  "train_only_outcomes": [
+   "is_click",
+   "is_like",
+   "is_follow",
+   "is_comment",
+   "is_forward",
+   "is_hate",
+   "is_profile_enter",
+   "play_time_ms",
+   "profile_stay_time",
+   "comment_stay_time"
+  ],
+  "quarantined_files": {
+   "video_features_statistic_pure.csv": "dataset-wide aggregates of play/completion behaviour spanning the test window; joining them leaks both the label and the future"
+  },
+  "side_tables": {
+   "video": [
+    "author_id",
+    "music_id",
+    "music_type",
+    "server_height",
+    "server_width",
+    "tag",
+    "upload_dt",
+    "upload_type",
+    "video_duration",
+    "video_type",
+    "visible_status"
+   ],
+   "user": [
+    "fans_user_num",
+    "fans_user_num_range",
+    "follow_user_num",
+    "follow_user_num_range",
+    "friend_user_num",
+    "friend_user_num_range",
+    "is_live_streamer",
+    "is_lowactive_period",
+    "is_video_author",
+    "onehot_feat0",
+    "onehot_feat1",
+    "onehot_feat10",
+    "onehot_feat11",
+    "onehot_feat12",
+    "onehot_feat13",
+    "onehot_feat14",
+    "onehot_feat15",
+    "onehot_feat16",
+    "onehot_feat17",
+    "onehot_feat2",
+    "onehot_feat3",
+    "onehot_feat4",
+    "onehot_feat5",
+    "onehot_feat6",
+    "onehot_feat7",
+    "onehot_feat8",
+    "onehot_feat9",
+    "register_days",
+    "register_days_range",
+    "user_active_degree"
+   ]
+  }
+ }
+}
