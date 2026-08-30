@@ -247,6 +247,21 @@ _FORBIDDEN_NAMES = frozenset({"holdout", "extract_test_labels", "test_labels", "
 # agent away from. The cache physically lacks the test labels; the raw log does not.
 _FORBIDDEN_ATTRS = frozenset({"DATA_DIR", "LOG_FILES", "RANDOM_LOG_FILE", "STARTER_KIT"})
 
+# Shelling out is banned outright, by call target rather than by argument.
+#
+# `os` is on the allowlist (candidates need os.environ, os.path), and it carries a
+# whole subprocess family with it. Inspecting the arguments does not work: a literal
+# path is caught, but `os.system('cat ' + d + '/x')` with a computed `d` sails
+# through, and no amount of string analysis fixes that in general. Closing the door
+# costs nothing, because a candidate loads data through DataAPI and writes a .npy --
+# it has no legitimate reason to start a process at all.
+_FORBIDDEN_CALLS = frozenset({
+    "system", "popen", "spawnl", "spawnle", "spawnlp", "spawnlpe",
+    "spawnv", "spawnve", "spawnvp", "spawnvpe", "execl", "execle",
+    "execlp", "execlpe", "execv", "execve", "execvp", "execvpe",
+    "fork", "forkpty", "posix_spawn", "posix_spawnp",
+})
+
 # `harness` is not a third-party import, it is the data path we hand the agent. The
 # submodule is restricted: data_guard is the API, holdout is the thing it exists to
 # make unreachable (and is caught by _FORBIDDEN_NAMES anyway).
@@ -337,7 +352,15 @@ class _ContractVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
     def visit_Attribute(self, node: ast.Attribute) -> None:
-        if node.attr in _FORBIDDEN_NAMES:
+        if node.attr in _FORBIDDEN_CALLS:
+            self._flag(
+                "no-subprocess",
+                f"`{node.attr}` starts a process. Candidates load data through "
+                f"DataAPI and write a .npy; they never shell out, and allowing it "
+                f"would make every other lint rule bypassable with a computed string",
+                node,
+            )
+        elif node.attr in _FORBIDDEN_NAMES:
             self._flag("no-test-labels", f"attribute access `.{node.attr}`", node)
         elif node.attr in _FORBIDDEN_ATTRS:
             self._flag(

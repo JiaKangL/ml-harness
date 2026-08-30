@@ -568,3 +568,39 @@ class TestLayering(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+class TestSubprocessDoorIsClosed(unittest.TestCase):
+    """`os` is on the allowlist because candidates need os.environ, and it carries the
+    whole subprocess family with it.
+
+    Argument inspection does not close this: a literal path is caught, but
+    `os.system('cat ' + d)` with a computed `d` is not, and no string analysis fixes
+    that in general. So the call target is banned outright -- a candidate loads data
+    through DataAPI and writes a .npy, and never has cause to start a process.
+    """
+
+    def test_computed_paths_do_not_evade_the_lint(self):
+        for name, code in (
+            ("os.system", "import os\nd='kuai'+'rand'\nos.system('cat '+d)"),
+            ("os.popen", "import os\nos.popen('ls '+'/'.join(['a','b']))"),
+            ("os.execv", "import os\nos.execv('/bin/sh',['sh'])"),
+            ("os.fork", "import os\nos.fork()"),
+            ("posix_spawn", "import os\nos.posix_spawn('/bin/sh',[],{})"),
+        ):
+            with self.subTest(call=name):
+                fr = executor.lint_contract(code)
+                self.assertIsNotNone(fr, f"{name} evaded the lint")
+                self.assertIn("no-subprocess", fr.traceback_tail)
+
+    def test_legitimate_os_use_still_passes(self):
+        """The rule must not break what candidates legitimately need."""
+        self.assertIsNone(
+            executor.lint_contract("import os\nprint(os.environ.get('HOME'))")
+        )
+        self.assertIsNone(
+            executor.lint_contract(
+                "import numpy as np\nfrom harness.data_guard import DataAPI\n"
+                "api = DataAPI()\nnp.save('out.npy', np.zeros(3))"
+            )
+        )
