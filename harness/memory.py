@@ -410,12 +410,18 @@ class StateTree:
         return best
 
     def history(self) -> list[Metrics | None]:
-        """Per-iteration metrics in creation order, `None` for a failed iteration.
+        """Per-node metrics in creation order, `None` for a failed iteration.
 
         This is what `Evaluator.convergence` consumes: it counts scored runs only, so
         three crashes in a row are a broken branch rather than three non-improvements.
+
+        The root is included deliberately. Its score seeds the running incumbent, and
+        excluding it makes the *first agent iteration* the reference point -- so a
+        candidate that scores below the baseline resets the bar downward and the run
+        converges on having stopped improving over a worse number than it started with.
+        Being first in the list, the root itself can never count as a stall.
         """
-        return [n.valid for n in self.nodes if n.iteration > 0]
+        return [n.valid for n in self.nodes]
 
 
 def _decode_fields(fields: dict) -> dict:
@@ -590,7 +596,7 @@ class FeatureInsightsLedger:
         self._put(ins)
         return ins
 
-    def render(self, max_tokens: int = 1400) -> str:
+    def render(self, max_tokens: int = 1400, include_mechanisms: bool = True) -> str:
         """The prompt's tier-B block: one line per experiment, ~30 tokens each.
 
         Append-only ordering so that the block only ever grows at the end. Rewriting
@@ -602,9 +608,18 @@ class FeatureInsightsLedger:
         used = len(lines[0])
         for ins in self.insights:
             sign = f"{ins.delta_primary:+.4f}" if ins.n_seeds else "n/a"
+            # `include_mechanisms=False` is the critics' view. A run-generated entry's
+            # mechanism is the agent's own hypothesis text, and a reviewer who reads the
+            # reasoning agrees with it -- that sycophancy is exactly what isolating the
+            # critics is meant to prevent. The three seeded entries keep their
+            # mechanisms either way: those came from the organizers, not from the agent.
+            published = not ins.node_ids
+            mechanism = (
+                f" — {ins.mechanism}" if (include_mechanisms or published) else ""
+            )
             line = (
                 f"- [{ins.verdict.value}] {ins.axis}/{ins.technique}: "
-                f"Δprimary {sign} over {ins.n_seeds} seed(s) — {ins.mechanism}"
+                f"Δprimary {sign} over {ins.n_seeds} seed(s){mechanism}"
             )
             if used + len(line) > budget:
                 lines.append(f"- ... {len(self.insights) - (len(lines) - 1)} older entries elided")

@@ -245,13 +245,13 @@ the sentence we most want — *"the agent chose it."*
 |---|---|---|---|
 | 0 | `preflight.py` | — | **done** — 9 checks/30s; FM 0.6015 vs 0.6016 |
 | 1 | `config` `data_guard` `profiler` `tests` | — | **done** — 23 tests, 1,134-token profile |
-| 1b | `eda.py` | [`plans/P1b-eda.md`](plans/P1b-eda.md) | |
-| 2 | `evaluator.py` | [`plans/P2-evaluator.md`](plans/P2-evaluator.md) | next |
-| 3 | `executor.py` | [`plans/P3-executor.md`](plans/P3-executor.md) | |
-| 4 | `memory.py` `logger.py` | [`plans/P4-memory-logger.md`](plans/P4-memory-logger.md) | |
-| 5 | `prompts` `llm` `agent` `loop` `console` | [`plans/P5-agent-loop.md`](plans/P5-agent-loop.md) | |
-| 6 | `critics.py` + ensembling | [`plans/P6-critics.md`](plans/P6-critics.md) | |
-| 7 | `score_final.py` + write-up | [`plans/P7-submission.md`](plans/P7-submission.md) | |
+| 1b | `eda.py` | [`plans/P1b-eda.md`](plans/P1b-eda.md) | **done** — report + 6 tests |
+| 2 | `evaluator.py` | [`plans/P2-evaluator.md`](plans/P2-evaluator.md) | **done** |
+| 3 | `executor.py` | [`plans/P3-executor.md`](plans/P3-executor.md) | **done** |
+| 4 | `memory.py` `logger.py` | [`plans/P4-memory-logger.md`](plans/P4-memory-logger.md) | **done** — 23 tests |
+| 5 | `prompts` `llm` `agent` `loop` `console` | [`plans/P5-agent-loop.md`](plans/P5-agent-loop.md) | **done** — mock run end-to-end |
+| 6 | `critics.py` + ensembling | [`plans/P6-critics.md`](plans/P6-critics.md) | **done** |
+| 7 | `score_final.py` + write-up | [`plans/P7-submission.md`](plans/P7-submission.md) | `score_final.py` done; write-up next |
 
 **Mock mode is built with Phase 5, not after it.** `--mock` swaps the LLM for four
 pre-written candidates (good / crashes / constant scores / attempts leakage), so L2–L6

@@ -20,7 +20,17 @@ python3 -m venv .venv && ./.venv/bin/pip install -r requirements.txt
 ./scripts/get_data.sh                                    # 47 MB from Zenodo
 ./.venv/bin/python -m harness.preflight                  # safety gate, ~30s
 ./.venv/bin/python -m harness.profiler                   # writes logs/data_profile.json
-./.venv/bin/python -m unittest discover -s tests -t .     # 23 tests, ~2s
+./.venv/bin/python -m harness.eda                        # writes logs/eda_report.md
+./.venv/bin/python -m unittest discover -s tests -t .     # the full acceptance suite
+```
+
+Then run the agent:
+
+```bash
+export ANTHROPIC_API_KEY=...
+./.venv/bin/python -m harness.loop --mock --max-iters 5   # no API calls, ~2 min
+./.venv/bin/python -m harness.loop --max-iters 15         # the real run
+./.venv/bin/python score_final.py                         # once, after it converges
 ```
 
 ---
@@ -74,19 +84,42 @@ found several obvious-looking ideas gave exactly zero gain.
 
 ## What's built
 
-| Module | What it does | Why it exists |
+Six layers, dependencies pointing strictly downward. A mistake in the bottom layer
+does not crash — it silently corrupts every number the layers above it report — which
+is why the foundation was built first and why each layer's tests assert that its
+guards *fire*, not that they exist.
+
+| Layer | Module | What it does |
 |---|---|---|
-| `harness/config.py` | All paths, settings, and the list of which data columns are legal to use when | One place to change anything; the column list *is* the safety rule |
-| `harness/data_guard.py` | Loads the data and hands the agent only what it's allowed to see | Stops the agent cheating by accident — see below |
-| `harness/preflight.py` | 9 checks that must pass before the loop may start | A broken harness doesn't fail loudly, it produces 50 confident wrong answers |
-| `harness/profiler.py` | Measures the dataset once, writes `logs/data_profile.json` | The agent's background knowledge, so it reasons from facts about the data rather than guessing |
-| `tests/` | 23 tests, run in 2 seconds | Each one is a specific way this project could produce a confident wrong answer |
+| L1 | `harness/config.py` | Paths, run policy, and which data columns are legal on which split |
+| L1 | `harness/data_guard.py` | The only data surface the agent gets; both firewalls |
+| L1 | `harness/preflight.py` | Nine blocking checks, including reproducing the organizers' own baselines |
+| L1 | `harness/profiler.py` | The prompt-sized measured data profile |
+| L1 | `harness/eda.py` | The full human-readable EDA; superset of the profile |
+| L1 | `harness/holdout.py` | The sole path to a test label, behind a seal |
+| L2 | `harness/evaluator.py` | Scoring, the seed ladder, the promotion gate, convergence, the submission |
+| L3 | `harness/executor.py` | Runs agent-written code under a timeout, an RSS cap and its own process group; validates the output |
+| L4 | `harness/memory.py` | The state tree with a greedy trunk, and the insight ledger |
+| L4 | `harness/logger.py` | `logs/iteration_logs.json` — the primary graded deliverable |
+| L5 | `harness/prompts.py` | The versioned prompt, and the frozen cache prefix |
+| L5 | `harness/llm.py` | The Anthropic client, token and cost accounting, and mock mode |
+| L5 | `harness/agent.py` | Context assembly, proposal parsing, and everything rejected before execution |
+| L5 | `harness/critics.py` | Three isolated reviewers, and the endgame ensemble |
+| L6 | `harness/loop.py` | The orchestrator |
+| L6 | `harness/console.py` | The live display |
+| — | `score_final.py` | The only code permitted to read test labels. Nothing in `harness/` imports it. |
 
 **Preflight** reproduces the organizers' own sanity checks: random guessing scores
 0.4827 (expected 0.4834) and their Factorization Machine scores 0.6015 (expected
 0.6016). It also verifies our data rows are in *exactly* the same order as theirs —
 the submission file identifies rows by position, so a reordering would misalign every
 number we submit while everything still looked fine.
+
+The run's **root node** is that same FM baseline, ported to the data guard's API and
+executed through the same executor, the same seeds and the same scorer as every
+candidate (`harness/seeds/baseline_fm.py`, 0.6024 on validation). It is the incumbent
+the agent has to beat, so it has to be measured the same way — otherwise the first
+promotion is a comparison between two different measurement procedures.
 
 ### The two safety rules
 
@@ -121,33 +154,53 @@ and the future.
 
 ---
 
-## What's left to build
+## What gets rejected before anything runs
 
-| Module | What it will do | Why it's needed |
-|---|---|---|
-| `harness/evaluator.py` | Score a candidate, decide whether it really beat the best, detect when we've stopped improving | Without it we can't tell a real improvement from luck |
-| `harness/executor.py` | Run agent-written code safely: timeout, memory cap, kill stray processes, reject nonsense output | Generated code crashes and hangs; that has to be survivable, not fatal |
-| `harness/memory.py` | Track every attempt, which is currently best, and what's been ruled out | Otherwise iteration 9 has no idea what iteration 2 already settled |
-| `harness/logger.py` | Write `logs/iteration_logs.json` | This is the main graded deliverable |
-| `harness/prompts.py` | The agent's instructions, kept in one versioned file | Judges score *what the agent chose to try and why*, which this shapes directly |
-| `harness/llm.py` | Talk to the model; count tokens and cost | Keeps the network layer separate so everything else is testable |
-| `harness/agent.py` | Assemble what the agent sees each turn | Its context must stay useful at turn 30, not just turn 3 |
-| `harness/critics.py` | The three reviewers that fire when progress stalls | Lets the run rescue itself instead of asking a human — asking a human costs marks |
-| `harness/console.py` | The live progress display | It's what we demo |
-| `harness/loop.py` | Runs everything in order | The actual agent |
-| `score_final.py` | The one script permitted to read test labels | Runs once, after we've finished |
+A rejection here costs no compute, so the bar is "this cannot teach us anything",
+not "this looks unpromising".
 
-### Also planned
+| Rejected | Why |
+|---|---|
+| No `predicted_delta` | Without a prediction the iteration is a search step, not a hypothesis test |
+| An axis outside the closed set of eight | The axis is also the ledger's key; one outside it cannot be looked up later |
+| `architecture` before the four priority axes have a result | A model swap is the organizers' fifth-ranked direction and the most expensive move available |
+| A diff touching only the feature list, or only an embedding dimension | Both are measured dead ends with published counter-evidence |
+| A technique the ledger already settled as KEEP or DISCARD | `INCONCLUSIVE` deliberately does *not* block — most single-run deltas honestly are |
+| Network access, a subprocess, the raw CSV tree, `harness.holdout` | Static AST lint, by call target rather than by argument |
 
-- **Mock mode** — a fake model that returns four pre-written scripts (one good, one
-  that crashes, one that outputs rubbish, one that tries to cheat). Lets us test the
-  entire loop in seconds without spending money or waiting. Built alongside the loop,
-  not after it.
-- **`logs/eda_report.md`** — a fuller, human-readable version of the data profile, for
-  the write-up.
-- **Grounding requirement** — every proposal must point at a specific measured fact
-  about the data that motivates it. Proposals that cite nothing get rejected before
-  they run, which costs nothing and stops the agent from blindly chasing the score.
+Two things are deliberately **not** blocking. An unresolvable `grounding` citation is
+recorded as `grounding_verified: false` and runs anyway — refusing would spend a real
+iteration punishing a spelling mistake, and the flag reports the rate honestly instead.
+And the random-exposure cross-check is advisory: it carries a *different* bias, not
+less noise, so treating a null result there as disqualifying would discard real gains.
+
+---
+
+## The three things worth leading with
+
+**1. The noise gate, and the fact that we measured it.** We assumed the seed spread was
+σ≈0.0012, measured σ=0.00035 over five seeds, and found our own headline claim was 3.3×
+overstated. The three-seed gate stayed, but for a corrected reason: that spread was
+measured on *one* model, a torch model with random initialisation can be far less
+stable, and one run gives no estimate of stability at all. Reporting the correction is
+a stronger claim than the original would have been.
+
+**2. The within-user variance lens.** A feature is worth exactly what it varies inside
+one user's impression group. `tab` spans a 2%-to-46% watch rate globally and is
+constant for 48% of users, so half its apparent predictive power cannot reach the
+ranking at all. This is arithmetic, not an experiment, and it explains the organizers'
+published dead ends mechanistically rather than as a list of things that did not work.
+
+**3. Autonomous stall escalation.** At two consecutive non-improvements — one before
+formal convergence, so the rescue can still land in time — three critics review the run
+in *fresh* contexts. They see the code, the data profile and the ledger's verdicts, but
+never the agent's own reasoning, because a reviewer who reads the reasoning agrees with
+it. Their proposals re-enter through the same three-seed gate as any other. The
+intervention count stays at zero.
+
+We also report **calibration**: the correlation between predicted and realised deltas
+across the run. Positive means the agent is reasoning; flat means it is guessing.
+Reporting it honestly either way is stronger than not measuring it.
 
 ---
 
@@ -157,10 +210,11 @@ and the future.
 |---|---|
 | 0 — preflight gate | done |
 | 1 — data guard, profiler, tests | done |
-| 1b — fuller EDA report | |
-| 2 — evaluator | next |
-| 3 — executor | |
-| 4 — memory + logger | |
-| 5 — prompts, llm, agent, loop, console | |
-| 6 — critics + ensembling | |
-| 7 — run + write-up | |
+| 1b — fuller EDA report | done |
+| 2 — evaluator | done |
+| 3 — executor | done |
+| 4 — memory + logger | done |
+| 5 — prompts, llm, agent, loop, console, mock mode | done |
+| 6 — critics + ensembling | done |
+| 7 — `score_final.py` | done |
+| 7 — the run itself, and the results table | pending |

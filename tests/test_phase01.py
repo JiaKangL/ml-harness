@@ -388,25 +388,33 @@ class TestHoldoutSeal(unittest.TestCase):
         """The audit trail is a one-line grep: every file that so much as names the
         holdout, and why it is allowed to.
 
-        Only two of these can reach a test label. `harness/executor.py` names it in
-        order to REJECT it -- the contract lint has to know the word to forbid it --
-        and `tests/test_executor.py` asserts that the rejection works. Listing them
-        here rather than loosening the grep keeps the property the check exists for: a
-        fifth file appearing is a test failure that somebody has to justify.
+        Only two of these can reach a test label: `harness/holdout.py`, which defines
+        the read, and `score_final.py`, which performs it once after the seal.
+        `harness/executor.py` names it in order to REJECT it -- the contract lint has to
+        know the word to forbid it -- and the test files assert that the refusals fire.
+        Listing them here rather than loosening the grep keeps the property the check
+        exists for: a new file appearing is a test failure somebody has to justify.
+
+        `score_final.py` is inside the grep root deliberately. It is the one file the
+        audit is really about, and leaving it out would make the check pass by looking
+        away from it.
         """
         import subprocess
 
         out = subprocess.run(
-            ["grep", "-rln", "--include=*.py", "extract_test_labels", "harness/", "tests/"],
+            ["grep", "-rln", "--include=*.py", "extract_test_labels",
+             "harness/", "tests/", "score_final.py"],
             cwd=C.ROOT, capture_output=True, text=True,
         ).stdout.split()
         self.assertEqual(
             sorted(out),
             [
-                "harness/executor.py",   # forbids the name; never calls it
-                "harness/holdout.py",    # defines it
-                "tests/test_executor.py",  # asserts the lint rejects it
-                "tests/test_phase01.py",   # asserts the seal
+                "harness/executor.py",       # forbids the name; never calls it
+                "harness/holdout.py",        # defines it
+                "score_final.py",            # the one permitted read, after the seal
+                "tests/test_executor.py",    # asserts the lint rejects it
+                "tests/test_phase01.py",     # asserts the seal
+                "tests/test_score_final.py", # asserts the refusals and the draw record
             ],
             f"unexpected files naming the holdout: {out}",
         )

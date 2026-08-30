@@ -4,3 +4,8 @@
 # bugs rather than ideas. The brief explicitly permits it.
 numpy==2.5.2
 torch==2.13.0
+
+# The agent's own runtime. Pinned because the request shape is load-bearing: the 1h
+# cache TTL and adaptive thinking are both parameters the SDK validates, and a silent
+# cache miss shows up only on the bill.
+anthropic==1.2.0

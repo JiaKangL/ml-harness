@@ -216,6 +216,26 @@ class Evaluator:
             raise RuntimeError(f"submission run failed for node {node.node_id}")
         return self.write_submission(np.load(scores_path), out_csv)
 
+    def write_submission_for(
+        self, scores: np.ndarray, out_csv: Path, split: Split = "test"
+    ) -> Path:
+        """The same writer, for any split. Exists so the valid cross-check can produce
+        a file `submit.py --score --split valid` will accept -- which is the only way
+        to check our scoring path against the organizers' on the same artifact."""
+        feats = self.data.features(split)
+        n = feats["user_id"].shape[0]
+        if scores.shape[0] != n:
+            raise ValueError(f"{scores.shape[0]} scores for {n} {split} rows")
+        if not np.isfinite(scores).all():
+            raise ValueError("submission contains NaN or Inf")
+        out_csv.parent.mkdir(parents=True, exist_ok=True)
+        with open(out_csv, "w", newline="") as fh:
+            w = csv.writer(fh)
+            w.writerow(["row_id", "user_id", "video_id", "score"])
+            for i, (u, v, s) in enumerate(zip(feats["user_id"], feats["video_id"], scores)):
+                w.writerow([i, int(u), int(v), f"{float(s):.6g}"])
+        return out_csv
+
     def write_submission(self, scores: np.ndarray, out_csv: Path) -> Path:
         """CSV in the official schema: row_id,user_id,video_id,score.
 
