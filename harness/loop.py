@@ -80,6 +80,16 @@ class LoopConfig:
     wall_clock_ceiling_s: float = C.WALL_CLOCK_CEILING_S
     unbiased_check: bool = True
     critics: bool = True
+    #: Build and verify the submission at the end of the run. A real run's whole point;
+    #: ruinous inside a test, because it re-executes the trunk on the test split and
+    #: then shells out to the organizers' `submit.py`, which re-parses the raw CSVs and
+    #: scores in pure Python. Paying that in every orchestration test turned a
+    #: three-minute suite into one that never finished.
+    build_submission: bool = True
+    #: Additionally score a valid-split submission through `submit.py` and compare it to
+    #: the harness's own number. Worth a minute at the end of a real run: it is the only
+    #: check that our scoring path and theirs agree on the same file.
+    cross_check_valid: bool = True
     #: The research-ordering rule that refuses `architecture` until every priority axis
     #: has a scored attempt. Off in mock mode, where the point is to exercise the
     #: execution plumbing rather than the search order -- the rule has its own test.
@@ -123,13 +133,19 @@ class Loop:
         cfg: LoopConfig | None = None,
         llm: LLM | None = None,
         console: Console | None = None,
+        data: DataAPI | None = None,
     ):
         self.cfg = cfg or LoopConfig()
         self.console = console or Console()
         self.outputs = Path(self.cfg.outputs_dir or C.OUTPUTS_DIR)
         self.outputs.mkdir(parents=True, exist_ok=True)
 
-        self.data = DataAPI()
+        # Injectable, and shared with the executor and the evaluator below. A DataAPI
+        # materialises the whole cache -- a few hundred megabytes -- so one per Loop is
+        # right for a real run and ruinous for a test suite that builds a dozen of
+        # them: unittest holds every test case alive, so the arrays accumulate until
+        # the machine starts swapping and the suite appears to hang.
+        self.data = data if data is not None else DataAPI()
         self.evaluator = Evaluator(self.data, scoring.evaluate_sha256())
         self.executor = Executor(
             workspace=self.cfg.workspace,
@@ -345,10 +361,26 @@ class Loop:
 
     def _generate(self, iteration: int, parent: Node, axis: str, critique):
         """Ask, validate, and re-ask on a rejection. Rejections cost no compute."""
-        if critique is not None:
-            return critique[2]
-
         parent_code = parent.proposal.code or Path(parent.code_path).read_text()
+        scored_axes = {n.proposal.axis for n in self.tree.nodes if n.valid is not None}
+
+        if critique is not None:
+            # A critic's proposal goes through the same pre-execution gates as the
+            # agent's. It has already been through the same parser; exempting it from
+            # the dead-end and ledger checks would make "rescue the run" a way to buy a
+            # measured dead end back, and there is no re-ask to fall back on.
+            generation = critique[2]
+            try:
+                self.agent.check_dead_end(parent_code, generation.proposal.code)
+                self.agent.check_ledger(generation.proposal, self.ledger.get)
+            except ProposalRejected as rejection:
+                self.console.warn(
+                    f"critic {critique[0]}'s proposal rejected [{rejection.rule}]: "
+                    f"{rejection.message.splitlines()[0]}"
+                )
+                return None
+            return generation
+
         messages = self.agent.build_messages(
             iteration=iteration,
             parent=parent,
@@ -359,7 +391,6 @@ class Loop:
             axis_reason=self._axis_reason(axis),
             recent_changes=self._recent_changes(),
         )
-        scored_axes = {n.proposal.axis for n in self.tree.nodes if n.valid is not None}
         operator = None
         for attempt in range(MAX_REJECTION_RETRIES + 1):
             try:
@@ -737,6 +768,8 @@ class Loop:
                 except Exception as exc:  # pragma: no cover - never lose a good run to this
                     self.console.warn(f"ensembling failed, keeping the trunk: {exc}")
 
+        if not self.cfg.build_submission:
+            return
         self.console.stage(f"building the submission from node {trunk.node_id}")
         try:
             csv_path = self.evaluator.build_submission(
@@ -745,7 +778,8 @@ class Loop:
             shutil.copyfile(trunk.code_path, Path(self.cfg.best_model_py or C.BEST_MODEL_PY))
             self.evaluator.verify_alignment(csv_path)
             self.console.ok(f"submission verified: {csv_path}")
-            self._cross_check_valid(trunk)
+            if self.cfg.cross_check_valid:
+                self._cross_check_valid(trunk)
             from . import holdout
 
             if not self.cfg.seal:
@@ -789,9 +823,22 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--root-seeds", type=int, default=len(C.CONFIRM_SEEDS))
     args = ap.parse_args(argv)
 
+    # Mock mode never seals and never writes into the real deliverable directory. A
+    # mock run's submission is the FM baseline with a rehearsal attached; sealing on it
+    # would unlock the test labels for a run that proved nothing, and its candidates
+    # would sit in `outputs/` looking like the agent's work.
     cfg = LoopConfig(
         mock=args.mock,
         enforce_axis_lock=not args.mock,
+        seal=not args.mock,
+        cross_check_valid=not args.mock,
+        build_submission=True,
+        outputs_dir=(C.OUTPUTS_DIR / "mock") if args.mock else None,
+        state_path=(C.LOGS_DIR / "mock_state.jsonl") if args.mock else None,
+        logs_jsonl=(C.LOGS_DIR / "mock_iteration_logs.jsonl") if args.mock else None,
+        logs_json=(C.LOGS_DIR / "mock_iteration_logs.json") if args.mock else None,
+        submission_csv=(C.OUTPUTS_DIR / "mock" / "submission.csv") if args.mock else None,
+        best_model_py=(C.OUTPUTS_DIR / "mock" / "best_model.py") if args.mock else None,
         max_iters=args.max_iters,
         skip_preflight=args.skip_preflight,
         critics=not args.no_critics,

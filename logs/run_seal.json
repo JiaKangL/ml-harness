@@ -1,0 +1,8 @@
+{
+  "node_id": "node_07",
+  "submission_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "valid_primary": 0.6125,
+  "iterations": 14,
+  "converged_reason": "converged",
+  "sealed_at": 1788103211.800241
+}

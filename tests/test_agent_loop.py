@@ -10,6 +10,7 @@ mode over a two-second root, which exercises L2-L6 in seconds with zero tokens.
 from __future__ import annotations
 
 import json
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -243,9 +244,21 @@ class TestProposalValidation(unittest.TestCase):
 
 
 class LoopTestCase(unittest.TestCase):
+    #: One DataAPI for every loop test in the process. See Loop.__init__: a fresh one
+    #: per test accumulates hundreds of megabytes that unittest never releases.
+    _data = None
+
+    @classmethod
+    def shared_data(cls):
+        if LoopTestCase._data is None:
+            from harness.data_guard import DataAPI
+
+            LoopTestCase._data = DataAPI()
+        return LoopTestCase._data
+
     def loop(self, llm=None, **overrides) -> Loop:
         d = Path(tempfile.mkdtemp())
-        self.addCleanup(lambda: None)
+        self.addCleanup(lambda: shutil.rmtree(d, ignore_errors=True))
         cfg = LoopConfig(
             mock=True,
             skip_preflight=True,
@@ -254,6 +267,8 @@ class LoopTestCase(unittest.TestCase):
             critics=False,
             unbiased_check=False,
             enforce_axis_lock=False,
+            cross_check_valid=False,
+            build_submission=False,
             root_seeds=(42,),
             confirm_seeds=(42, 43, 44),
             seed_script=FAST_ROOT,
@@ -268,7 +283,7 @@ class LoopTestCase(unittest.TestCase):
         )
         for k, v in overrides.items():
             setattr(cfg, k, v)
-        return Loop(cfg, llm=llm, console=Console(quiet=True))
+        return Loop(cfg, llm=llm, console=Console(quiet=True), data=self.shared_data())
 
 
 class TestLoopEndToEnd(LoopTestCase):
@@ -344,6 +359,7 @@ class TestLoopEndToEnd(LoopTestCase):
             LoopConfig(**{**first.cfg.__dict__, "resume": True, "max_iters": 3}),
             llm=LL.MockLLM(),
             console=Console(quiet=True),
+            data=self.shared_data(),
         )
         self.assertEqual(len(resumed.tree), nodes_before)
         self.assertEqual(resumed.tree.trunk().node_id, first.tree.trunk().node_id)

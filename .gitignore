@@ -16,5 +16,11 @@ __pycache__/
 *.py[cod]
 .DS_Store
 
+# Mock-mode rehearsal output. Not a deliverable: mock runs prove the plumbing, and
+# committing their candidates would put scripts the agent never wrote next to ones it
+# did.
+outputs/mock/
+logs/mock_*
+
 # Scratch
 harness_design.html

@@ -143,7 +143,7 @@ class TestEscalationInTheLoop(LoopTestCase):
                              "a critic-originated proposal promotes on 3 seeds, like any other")
 
 
-class TestEnsemble(unittest.TestCase):
+class TestEnsemble(LoopTestCase):
     def test_rank_averaging_k_noisy_scorers_beats_the_average_single_scorer(self):
         """The premise, tested on synthetic data rather than asserted: partly
         independent errors cancel, so the average ranking is better than the average
@@ -201,15 +201,78 @@ class TestEnsemble(unittest.TestCase):
         self.assertIsNone(check_syntax(code))
         self.assertIsNone(lint_contract(code))
 
-    def test_only_confirmed_nodes_are_eligible(self):
+    def test_only_confirmed_nodes_reach_the_ensemble(self):
         """An ensemble of unconfirmed candidates is an average of noise, so the
-        eligibility rule is load-bearing rather than tidy."""
-        import inspect
+        eligibility rule is load-bearing rather than tidy.
 
-        source = inspect.getsource(critics.build_ensemble)
-        self.assertIn("confirmed", source)
-        caller = inspect.getsource(Loop._endgame)
-        self.assertIn("NodeStatus.PROMOTED", caller)
+        Checked by watching what the endgame actually hands over, not by reading the
+        source: a source-text assertion passes or fails on how the code is spelled.
+        """
+        loop = _EnsembleLoop().build(self)
+        handed: list = []
+        original = critics.build_ensemble
+
+        def capture(lp, confirmed, iteration):
+            handed.extend(confirmed)
+            return None
+
+        critics.build_ensemble = capture
+        try:
+            loop._endgame(9)
+        finally:
+            critics.build_ensemble = original
+
+        self.assertTrue(handed, "the endgame must offer the confirmed nodes")
+        for node in handed:
+            self.assertIs(node.status, NodeStatus.PROMOTED)
+            self.assertIsNotNone(node.valid)
+        self.assertNotIn("scored_not_promoted", [n.node_id for n in handed])
+        self.assertNotIn("failed_node", [n.node_id for n in handed])
+
+    def test_fewer_than_two_members_produces_no_ensemble(self):
+        """Averaging one thing is that thing. Returning None rather than a degenerate
+        one-member 'ensemble' keeps the log honest about what was actually done."""
+        loop = _EnsembleLoop().build(self, promoted=1)
+        confirmed = [n for n in loop.tree.nodes if n.status is NodeStatus.PROMOTED]
+        self.assertIsNone(critics.build_ensemble(loop, confirmed, 9))
+
+
+class _EnsembleLoop:
+    """Builds a loop whose tree already holds a mix of node statuses."""
+
+    def build(self, case: LoopTestCase, promoted: int = 2):
+        loop = case.loop(critics=True, max_iters=1)
+        # The root is promoted by _seed_root; add the rest by hand so the tree carries
+        # one of every status the endgame has to discriminate between.
+        loop._seed_root()
+        for i in range(promoted - 1):
+            nid = f"promoted_{i}"
+            loop.tree.add(_child(loop, nid, i + 1))
+            loop.tree.record_result(nid, make_metrics(0.61 + 0.001 * i),
+                                    [make_metrics(0.61 + 0.001 * i)])
+            loop.tree.promote(nid)
+        loop.tree.add(_child(loop, "scored_not_promoted", 8))
+        loop.tree.record_result("scored_not_promoted", make_metrics(0.605),
+                                [make_metrics(0.605)])
+        loop.tree.add(_child(loop, "failed_node", 9))
+        loop.tree.update("failed_node", status=NodeStatus.FAILED)
+        return loop
+
+
+def _child(loop, node_id: str, iteration: int):
+    from harness.types import Node, Proposal
+
+    trunk = loop.tree.trunk()
+    return Node(
+        node_id=node_id,
+        parent_id=trunk.node_id,
+        iteration=iteration,
+        proposal=Proposal("a hypothesis of sufficient length to be a real one here",
+                          "loss", "metric", 0.003, trunk.proposal.code, f"t_{node_id}"),
+        status=NodeStatus.PENDING,
+        code_path=trunk.code_path,
+        code_sha256="0" * 64,
+    )
 
 
 if __name__ == "__main__":
