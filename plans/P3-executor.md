@@ -61,6 +61,12 @@ contract violation caught at lint, before execution.
 
 ## The retry ladder
 
+**Ownership: the loop (L6) drives this ladder; the executor only classifies.**
+`Executor` returns a `FailureRecord` with a `FailureClass` and never decides what
+happens next -- regenerating needs `llm.py` (L5), marking a node FAILED and reverting
+needs `memory.py` (L4), and L3 may import neither. The table below is the loop's
+policy, stated here because it is the executor's classification that drives it.
+
 Not every failure costs an iteration. This distinction is the Robustness story.
 
 | Class | Response | Costs an iteration? |

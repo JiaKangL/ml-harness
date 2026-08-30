@@ -95,6 +95,53 @@ predicted-vs-realised calibration correlation.
 Write append-only JSONL during the run; render the JSON array at the end. Every write
 atomic (temp + `os.replace`) so a kill at hour 5 never truncates the deliverable.
 
+### Contract
+
+```python
+@dataclass(frozen=True)
+class LogEntry:
+    iteration: int
+    node_id: str
+    parent_id: str | None
+    status: str                     # NodeStatus.value
+    hypothesis: str
+    axis: str
+    grounding: str
+    grounding_verified: bool
+    predicted_delta: float
+    realised_delta: float | None    # vs the parent, computed by the logger
+    change_summary: str
+    diff: str                       # full unified diff; never truncated here
+    is_rewrite: bool
+    metrics: dict | None            # gauc / ndcg5 / primary / std / seeds
+    per_seed: list[dict]
+    gate: dict | None               # promote, reason, quarantined, deltas
+    errors: list[dict]              # every repair attempt, not just the last
+    resources: dict                 # per-stage wall time, peak RSS
+    tokens: dict                    # prompt/completion/cache, cost, latency
+    source: str = "agent"           # "agent" | "critic:A" | "ensemble"
+
+class IterationLogger:
+    def __init__(self, jsonl: Path, json_out: Path): ...
+    def log(self, entry: LogEntry) -> None: ...        # atomic append
+    def finalize(self) -> RunSummary: ...              # renders the JSON array
+    def resume(self) -> int: ...                       # last iteration on disk
+
+@dataclass(frozen=True)
+class RunSummary:
+    iterations: int
+    manual_interventions: int       # target 0 -- scored under Autonomy
+    total_tokens: TokenUsage
+    wall_clock_seconds: float
+    best_valid: dict
+    calibration_r: float | None     # predicted vs realised delta correlation
+    converged: bool
+    convergence_iteration: int | None
+```
+
+`source` exists so a critic-originated proposal is distinguishable in the log -- P6's
+acceptance test needs it and `Proposal` has no origin field.
+
 ## Acceptance tests — `tests/test_memory_logger.py`
 
 | Test | Passes when |
@@ -110,3 +157,6 @@ atomic (temp + `os.replace`) so a kill at hour 5 never truncates the deliverable
 | Rewrite labelled | A >60%-changed diff is recorded as a rewrite, not an edit |
 | Token accounting | Repair and critic calls are included in the cumulative total |
 | Cumulative metering | Run summary reports total prompt+completion tokens and wall-clock |
+| Calibration computed | RunSummary.calibration_r is populated from >= 3 scored entries |
+| Critic origin visible | A critic-originated entry is distinguishable via `source` |
+| Realised delta | Computed against the parent node, not left to the caller |

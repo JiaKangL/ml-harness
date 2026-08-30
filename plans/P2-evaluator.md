@@ -90,8 +90,13 @@ class Evaluator:
     def unbiased_check(self, scores_fn, node_id: str) -> Metrics | None:
         """Optional promotion-time re-score on the random-exposure log."""
 
-    def build_submission(self, node: Node, out_csv: Path) -> Path:
-        """Re-execute node.code_path FROM DISK. Never a pickled model."""
+    def build_submission(self, node: Node, out_csv: Path, runner: Runner) -> Path:
+        """Re-execute node.code_path FROM DISK via an INJECTED runner. Never a
+        pickled model, and never our own subprocess launcher: running agent code
+        under process-group and RSS supervision is the executor's contract (L3), and
+        L2 may not import it. `runner` is `Executor.run` bound by the loop.
+
+        Runner = Callable[[str, str, Split, int], RunResult]"""
 
     def verify_submission(self, csv_path: Path, split: Split) -> bool:
         """Shell out to the official submit.py --check (test) / --score (valid)."""
@@ -136,8 +141,12 @@ loop escalates to critics rather than stopping.
 **Checksum `evaluate.py` on construction.** If it has changed since preflight, refuse
 to score. It is the sole source of truth and must be provably unmodified.
 
-**`build_submission` re-executes from disk.** Serialising an in-memory model makes the
-submission unreproducible and unauditable. The stored source is the artifact.
+**`build_submission` re-executes from disk, through an injected runner.** Serialising
+an in-memory model makes the submission unreproducible and unauditable -- the stored
+source is the artifact. But *running* it is L3's job, and L2 must not import L3. So
+the loop passes `Executor.run` in, exactly as `unbiased_check` already takes a
+callable. Duplicating the launcher inside L2 would be worse than the import: the
+unsupervised copy is the one that produces the file we actually submit.
 
 ---
 

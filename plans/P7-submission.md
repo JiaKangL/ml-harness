@@ -30,6 +30,21 @@ formula `score_dataset = mean over m of delta(m)`.
 - `--score --split valid` as a consistency check against the harness-recorded number;
   disagreement means something is misaligned and we want to know before submitting.
 
+## Acceptance tests — `tests/test_score_final.py`
+
+The one module that touches test labels had no tests at all. These are the ones that
+matter most in the repository.
+
+| Test | Passes when |
+|---|---|
+| Refuses when not converged | Invoking it on an unconverged run raises, and reads nothing |
+| Runs once | A second invocation without `--force` refuses |
+| `--force` is logged | An override writes an explicit record naming it as a second draw |
+| Single import site | `grep -rn "holdout import\|load_test_labels" harness/ *.py` matches only this module |
+| No loop feedback | Nothing in `harness/` imports `score_final` |
+| Delta arithmetic | `delta(m) = score_agent(m) - score_baseline(m)` against 0.6610 / 0.5282 |
+| Submission alignment | The scored CSV has one row per test row, `row_id` contiguous |
+
 ## Deliverables
 
 | Artifact | Notes |

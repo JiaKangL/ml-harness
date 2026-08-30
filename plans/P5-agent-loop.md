@@ -146,11 +146,11 @@ API calls*.
 | Cache TTL | The request carries `ttl: "1h"`, not bare ephemeral |
 | Cache share | Cached tokens are >= 60% of prompt tokens by iteration 3 |
 | Grounding fuzzy | A paraphrased key resolves via difflib and still runs |
+| Missing prediction rejected | A proposal with no predicted_delta IS rejected pre-execution |
 | Grounding advisory | An unresolvable key sets grounding_verified=False and still runs |
 | Circuit breaker | 3 failed repairs mark FAILED and revert to parent |
 | Usage captured | prompt_tokens/completion_tokens recorded on every call incl. repairs |
 | Prefix frozen | Tier A is byte-identical across 5 assemblies |
-| Grounding enforced | A proposal citing no data-profile fact is rejected pre-execution |
 | Dead-end rejection | A FIELDS-only diff is rejected without running |
 | Axis lock | `architecture` is refused until the four priority axes are scored |
 | Mock end-to-end | `loop.py --mock --max-iters 5` → 5 valid log entries |
