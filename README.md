@@ -39,12 +39,15 @@ export ANTHROPIC_API_KEY=...                              # or see "Model access
 You supply your own model access; nothing is bundled. `--mock` needs no credential at
 all and exercises the entire loop, so the harness is inspectable without one.
 
-The quickest way in is a `.env` file in the repo root — it is gitignored, and the
-harness reads it at import:
+Copy the template and fill in a credential. `.env` is gitignored; `.env.example` is
+the committed template, and the harness reads `.env` at import:
 
 ```bash
+cp .env.example .env      # then edit it, or:
 echo 'ANTHROPIC_API_KEY=sk-ant-...' > .env
 ```
+
+(`.env` is a dotfile, so Finder and most editors hide it by default — `ls -la` shows it.)
 
 A real environment variable always takes precedence, so `.env` is a convenience and
 never a surprise. Every setting below can go in it or be exported directly.

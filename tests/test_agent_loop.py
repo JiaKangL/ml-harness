@@ -256,6 +256,41 @@ class TestBackendConfiguration(unittest.TestCase):
                 for k in ("ANTHROPIC_API_KEY", "HARNESS_LLM_BASE_URL"):
                     os.environ.pop(k, None)
 
+    def test_the_unedited_template_is_refused_by_name(self):
+        """`cp .env.example .env` and forget to edit it: the SDK reads the variable
+        itself, so silently skipping the filler would not stop it being sent -- it
+        would only move the failure to a 401 after the baseline had been scored."""
+        for var in C.CREDENTIAL_VARS:
+            self.assertTrue(C._is_placeholder("sk-ant-..."))
+            break
+        self.assertTrue(C._is_placeholder("..."))
+        self.assertTrue(C._is_placeholder("changeme"))
+        self.assertFalse(C._is_placeholder("sk-ant-api03-real"))
+        self.assertFalse(C._is_placeholder(""))
+        self.assertFalse(C._is_placeholder(None))
+
+        with mock.patch.object(C, "PLACEHOLDER_VARS", ("ANTHROPIC_API_KEY",)), \
+             mock.patch.object(C, "LLM_API_KEY", None), \
+             mock.patch.object(C, "LLM_AUTH_TOKEN", None):
+            with self.assertRaises(LL.LLMError) as ctx:
+                LL.AnthropicLLM()
+        self.assertIn("ANTHROPIC_API_KEY", str(ctx.exception))
+        self.assertIn(".env.example", str(ctx.exception))
+
+    def test_the_shipped_template_contains_no_real_credential(self):
+        """The template is committed, so it must never carry anything usable."""
+        template = Path(__file__).resolve().parent.parent / ".env.example"
+        self.assertTrue(template.exists(), ".env.example is a documented deliverable")
+        for line in template.read_text().splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            _, _, value = line.partition("=")
+            self.assertTrue(
+                C._is_placeholder(value.strip()),
+                f"{line!r} in .env.example is not obviously a placeholder",
+            )
+
     def test_a_missing_dotenv_is_not_an_error(self):
         C._load_dotenv(Path("/nonexistent/.env"))
 

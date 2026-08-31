@@ -277,11 +277,40 @@ def _load_dotenv(path: Path) -> None:
 
 _load_dotenv(ROOT / ".env")
 
-LLM_API_KEY = os.environ.get("HARNESS_LLM_API_KEY") or os.environ.get("ANTHROPIC_API_KEY")
-LLM_AUTH_TOKEN = (
-    os.environ.get("HARNESS_LLM_AUTH_TOKEN") or os.environ.get("ANTHROPIC_AUTH_TOKEN")
+def _is_placeholder(value: str | None) -> bool:
+    """True for the filler `.env.example` ships with, so it is never mistaken for a key."""
+    value = (value or "").strip()
+    return bool(value) and (value.endswith("...") or value in {"...", "changeme"})
+
+
+def _credential(*names: str) -> str | None:
+    """First of `names` set to something that is not obviously the template's filler.
+
+    `cp .env.example .env` and forget to edit it, and the placeholder resolves as a
+    real credential: the run then starts, scores the FM baseline on three seeds, and
+    dies a minute later on a 401 that says nothing about the actual mistake. Treating
+    the filler as absent turns that into the fail-fast message that names the fix.
+    """
+    for name in names:
+        value = (os.environ.get(name) or "").strip()
+        if value and not _is_placeholder(value):
+            return value
+    return None
+
+
+CREDENTIAL_VARS = (
+    "HARNESS_LLM_API_KEY", "ANTHROPIC_API_KEY",
+    "HARNESS_LLM_AUTH_TOKEN", "ANTHROPIC_AUTH_TOKEN",
 )
-LLM_BASE_URL = os.environ.get("HARNESS_LLM_BASE_URL") or os.environ.get("ANTHROPIC_BASE_URL")
+
+#: Variables that are set but hold the template's filler. Named rather than merely
+#: skipped: the SDK reads these environment variables itself, so quietly ignoring one
+#: here does not stop it being used -- it only moves the failure to a 401 an hour later.
+PLACEHOLDER_VARS = tuple(n for n in CREDENTIAL_VARS if _is_placeholder(os.environ.get(n)))
+
+LLM_API_KEY = _credential("HARNESS_LLM_API_KEY", "ANTHROPIC_API_KEY")
+LLM_AUTH_TOKEN = _credential("HARNESS_LLM_AUTH_TOKEN", "ANTHROPIC_AUTH_TOKEN")
+LLM_BASE_URL = _credential("HARNESS_LLM_BASE_URL", "ANTHROPIC_BASE_URL")
 
 MODEL = os.environ.get("HARNESS_LLM_MODEL", "claude-opus-5")
 CRITIC_MODEL = MODEL

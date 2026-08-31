@@ -98,6 +98,15 @@ class AnthropicLLM:
         if url:
             kwargs["base_url"] = url
 
+        if C.PLACEHOLDER_VARS and not (key or token):
+            # Before constructing: the SDK reads these variables itself, so leaving the
+            # filler in place would hand it a credential we deliberately rejected.
+            raise LLMError(
+                f"{', '.join(C.PLACEHOLDER_VARS)} still holds the placeholder from "
+                f"`.env.example`. Edit `.env` and put a real credential there — or "
+                f"delete the line. `--mock` needs no credential at all."
+            )
+
         self.client = anthropic.Anthropic(**kwargs)
 
         # Fail here, not at the first request. The SDK resolves credentials lazily and
