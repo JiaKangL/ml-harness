@@ -27,11 +27,34 @@ python3 -m venv .venv && ./.venv/bin/pip install -r requirements.txt
 Then run the agent:
 
 ```bash
-export ANTHROPIC_API_KEY=...
-./.venv/bin/python -m harness.loop --mock --max-iters 5   # no API calls, ~2 min
+export ANTHROPIC_API_KEY=...                              # or see "Model access" below
+./.venv/bin/python -m harness.loop --mock --max-iters 5   # no API calls, no key, ~2 min
+./.venv/bin/python -m harness.loop --max-iters 1          # one live iteration, ~$0.30
 ./.venv/bin/python -m harness.loop --max-iters 15         # the real run
 ./.venv/bin/python score_final.py                         # once, after it converges
 ```
+
+### Model access
+
+You supply your own model access; nothing is bundled. `--mock` needs no credential at
+all and exercises the entire loop, so the harness is inspectable without one.
+
+| Variable | Purpose | Falls back to |
+|---|---|---|
+| `HARNESS_LLM_API_KEY` | credential, sent as `x-api-key` | `ANTHROPIC_API_KEY` |
+| `HARNESS_LLM_AUTH_TOKEN` | credential, sent as a bearer token | `ANTHROPIC_AUTH_TOKEN` |
+| `HARNESS_LLM_BASE_URL` | alternate endpoint, for a gateway | `ANTHROPIC_BASE_URL` |
+| `HARNESS_LLM_MODEL` | model id, if the gateway names it differently | `claude-opus-5` |
+
+A missing credential is reported before the run starts rather than at the first
+generation, which would otherwise be a minute in — after preflight and after the
+baseline has been scored on three seeds.
+
+**The endpoint must speak the Anthropic Messages API.** That is a hard requirement, not
+a preference: the run places a `cache_control` breakpoint with a 1-hour TTL and reads
+its token accounting — a graded deliverable — off the `usage` fields. A proxy that
+merely translates to an OpenAI-shaped API does not error; it silently drops the cache
+directives, and the only symptom is the bill.
 
 ---
 

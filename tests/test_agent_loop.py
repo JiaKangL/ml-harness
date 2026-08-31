@@ -10,10 +10,12 @@ mode over a two-second root, which exercises L2-L6 in seconds with zero tokens.
 from __future__ import annotations
 
 import json
+import os
 import shutil
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from harness import agent as A
 from harness import config as C
@@ -149,6 +151,85 @@ class TestCacheRequestShape(unittest.TestCase):
         client.complete("PREFIX", [{"role": "user", "content": "go"}], operator="do X")
         self.assertEqual(captured["system"][0]["text"], "PREFIX")
         self.assertEqual(captured["messages"][-1], {"role": "system", "content": "do X"})
+
+
+class TestBackendConfiguration(unittest.TestCase):
+    """The credential and endpoint are environment-driven, because the key that runs
+    this may be issued by a gateway rather than by Anthropic."""
+
+    def build(self, **env):
+        """Construct the client with `config` patched, without touching the network."""
+        patches = [mock.patch.object(C, k, v) for k, v in env.items()]
+        for p_ in patches:
+            p_.start()
+            self.addCleanup(p_.stop)
+        captured = {}
+        real = LL.AnthropicLLM.__init__
+
+        import anthropic
+
+        orig = anthropic.Anthropic
+
+        def spy(**kwargs):
+            captured.update(kwargs)
+            return orig(api_key="sk-test-placeholder")
+
+        anthropic.Anthropic = spy
+        try:
+            llm = LL.AnthropicLLM()
+        finally:
+            anthropic.Anthropic = orig
+        return llm, captured
+
+    def test_a_generic_key_is_used_without_touching_anthropic_api_key(self):
+        _, kwargs = self.build(
+            LLM_API_KEY="gateway-key", LLM_AUTH_TOKEN=None, LLM_BASE_URL=None
+        )
+        self.assertEqual(kwargs.get("api_key"), "gateway-key")
+        self.assertNotIn("base_url", kwargs)
+
+    def test_a_bearer_token_gateway_is_supported(self):
+        """Most gateway credentials arrive on Authorization, not x-api-key."""
+        _, kwargs = self.build(
+            LLM_API_KEY=None, LLM_AUTH_TOKEN="bearer-abc", LLM_BASE_URL=None
+        )
+        self.assertEqual(kwargs.get("auth_token"), "bearer-abc")
+        self.assertNotIn("api_key", kwargs)
+
+    def test_an_alternate_endpoint_is_passed_through(self):
+        _, kwargs = self.build(
+            LLM_API_KEY="k", LLM_AUTH_TOKEN=None, LLM_BASE_URL="https://gateway.example/v1"
+        )
+        self.assertEqual(kwargs.get("base_url"), "https://gateway.example/v1")
+
+    def test_an_api_key_wins_over_a_token_when_both_are_set(self):
+        _, kwargs = self.build(
+            LLM_API_KEY="k", LLM_AUTH_TOKEN="t", LLM_BASE_URL=None
+        )
+        self.assertEqual(kwargs.get("api_key"), "k")
+        self.assertNotIn("auth_token", kwargs)
+
+    def test_a_missing_credential_names_every_variable_that_would_fix_it(self):
+        for attr in ("LLM_API_KEY", "LLM_AUTH_TOKEN", "LLM_BASE_URL"):
+            p_ = mock.patch.object(C, attr, None)
+            p_.start()
+            self.addCleanup(p_.stop)
+        for var in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"):
+            p_ = mock.patch.dict(os.environ, {}, clear=False)
+            p_.start()
+            self.addCleanup(p_.stop)
+            os.environ.pop(var, None)
+        with self.assertRaises(LL.LLMError) as ctx:
+            LL.AnthropicLLM()
+        message = str(ctx.exception)
+        self.assertIn("HARNESS_LLM_API_KEY", message)
+        self.assertIn("HARNESS_LLM_BASE_URL", message)
+        self.assertIn("--mock", message)
+
+    def test_the_model_id_is_overridable_for_a_gateway(self):
+        """A gateway may expose the same model under a different id."""
+        self.assertEqual(C.MODEL, os.environ.get("HARNESS_LLM_MODEL", "claude-opus-5"))
+        self.assertEqual(C.CRITIC_MODEL, C.MODEL)
 
 
 class TestProposalValidation(unittest.TestCase):

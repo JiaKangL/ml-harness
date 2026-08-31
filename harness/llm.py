@@ -62,7 +62,20 @@ class AnthropicLLM:
         max_tokens: int = C.MAX_TOKENS,
         api_key: str | None = None,
         max_retries: int = C.LLM_MAX_RETRIES,
+        base_url: str | None = None,
+        auth_token: str | None = None,
     ):
+        """Credentials come from `config`, which reads them from the environment.
+
+        The endpoint is configurable because the credential running this may be issued
+        by a gateway rather than by Anthropic directly. What is *not* negotiable is the
+        wire protocol: this client sends `cache_control` with a 1h TTL and adaptive
+        thinking, and reads the token accounting -- a graded deliverable -- straight off
+        Anthropic's `usage` fields. A gateway that merely proxies an OpenAI-shaped API
+        will not fail loudly here; it will drop the cache directives, and the only
+        symptom is the bill. So point this at an Anthropic-compatible endpoint or at
+        Anthropic itself, and nothing in between.
+        """
         try:
             import anthropic
         except ImportError as exc:  # pragma: no cover
@@ -71,10 +84,50 @@ class AnthropicLLM:
                 "the loop with --mock, which needs no network and no key"
             ) from exc
         self._anthropic = anthropic
-        self.client = anthropic.Anthropic(api_key=api_key) if api_key else anthropic.Anthropic()
+
+        kwargs: dict[str, str] = {}
+        key = api_key or C.LLM_API_KEY
+        token = auth_token or C.LLM_AUTH_TOKEN
+        url = base_url or C.LLM_BASE_URL
+        if key:
+            kwargs["api_key"] = key
+        elif token:
+            # Bearer rather than x-api-key: OAuth tokens and most gateway credentials
+            # arrive this way, and the SDK sends them on Authorization instead.
+            kwargs["auth_token"] = token
+        if url:
+            kwargs["base_url"] = url
+
+        self.client = anthropic.Anthropic(**kwargs)
+
+        # Fail here, not at the first request. The SDK resolves credentials lazily and
+        # raises only when a call is made, which on this harness means after preflight,
+        # after the FM baseline has been scored on three seeds, and roughly a minute
+        # into a run the operator expected to leave unattended.
+        if not (self.client.api_key or self.client.auth_token):
+            raise LLMError(
+                "no LLM credential resolved. Set one of:\n"
+                "  HARNESS_LLM_API_KEY      (or ANTHROPIC_API_KEY)     -- sent as x-api-key\n"
+                "  HARNESS_LLM_AUTH_TOKEN   (or ANTHROPIC_AUTH_TOKEN)  -- sent as a bearer token\n"
+                "and, for a gateway rather than Anthropic directly:\n"
+                "  HARNESS_LLM_BASE_URL     (or ANTHROPIC_BASE_URL)\n"
+                "  HARNESS_LLM_MODEL        if the gateway names the model differently\n"
+                "`--mock` runs the whole loop with none of them."
+            )
         self.model = model
         self.max_tokens = max_tokens
         self.max_retries = max_retries
+
+    def describe(self) -> str:
+        """What this client will actually talk to. Printed at the top of a live run so
+        an operator can see which endpoint and model a run's cost was spent on."""
+        endpoint = C.LLM_BASE_URL or "api.anthropic.com (default)"
+        credential = (
+            "HARNESS_LLM_API_KEY/ANTHROPIC_API_KEY" if C.LLM_API_KEY
+            else "HARNESS_LLM_AUTH_TOKEN/ANTHROPIC_AUTH_TOKEN" if C.LLM_AUTH_TOKEN
+            else "none"
+        )
+        return f"model {self.model} via {endpoint} (credential: {credential})"
 
     def complete(
         self, prefix: str, messages: list[dict], operator: str | None = None

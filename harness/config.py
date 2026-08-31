@@ -233,9 +233,30 @@ ALLOWED_IMPORTS = ("numpy", "math", "csv", "json", "collections", "itertools",
 # dependency.
 OPTIONAL_IMPORTS = ("torch",)
 
-# LLM backend.
-MODEL = "claude-opus-5"
-CRITIC_MODEL = "claude-opus-5"
+# ---------------------------------------------------------------- LLM backend
+#
+# Read through the environment rather than hard-coded, because the key that runs this
+# may not be a first-party Anthropic key: a hackathon gateway issues its own
+# credential and its own endpoint. Every one of these falls back to the SDK's own
+# variable, so an ordinary `export ANTHROPIC_API_KEY=...` still works untouched.
+#
+#   HARNESS_LLM_API_KEY     the credential, sent as x-api-key   (-> ANTHROPIC_API_KEY)
+#   HARNESS_LLM_AUTH_TOKEN  a bearer token instead of a key     (-> ANTHROPIC_AUTH_TOKEN)
+#   HARNESS_LLM_BASE_URL    an alternate endpoint               (-> ANTHROPIC_BASE_URL)
+#   HARNESS_LLM_MODEL       the model id the gateway expects
+#
+# A gateway is usable here only if it speaks the Anthropic Messages API. That is not a
+# preference: the run depends on `cache_control` with a 1h TTL and on adaptive
+# thinking, neither of which survives translation through an OpenAI-shaped endpoint,
+# and the whole token-accounting deliverable is read off Anthropic's `usage` fields.
+LLM_API_KEY = os.environ.get("HARNESS_LLM_API_KEY") or os.environ.get("ANTHROPIC_API_KEY")
+LLM_AUTH_TOKEN = (
+    os.environ.get("HARNESS_LLM_AUTH_TOKEN") or os.environ.get("ANTHROPIC_AUTH_TOKEN")
+)
+LLM_BASE_URL = os.environ.get("HARNESS_LLM_BASE_URL") or os.environ.get("ANTHROPIC_BASE_URL")
+
+MODEL = os.environ.get("HARNESS_LLM_MODEL", "claude-opus-5")
+CRITIC_MODEL = MODEL
 N_CRITICS = 3
 MAX_CRITIQUE_ROUNDS = 2
 MAX_TOKENS = 32_000

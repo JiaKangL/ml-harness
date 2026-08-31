@@ -191,7 +191,11 @@ class Loop:
             return self._finalize(convergence, iteration)
 
     def _run(self) -> L.RunSummary:
-        self.console.banner("mock" if self.cfg.mock else "live", self.cfg.max_iters)
+        self.console.banner(
+            "mock" if self.cfg.mock else "live",
+            self.cfg.max_iters,
+            backend=self.llm.describe() if hasattr(self.llm, "describe") else "",
+        )
         if not self.cfg.skip_preflight:
             self._preflight()
 

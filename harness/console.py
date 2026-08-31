@@ -38,10 +38,12 @@ class Console:
 
     # -- run level
 
-    def banner(self, mode: str, max_iters: int) -> None:
+    def banner(self, mode: str, max_iters: int, backend: str = "") -> None:
         self.write()
         self.write(self._c("bold", f"═══ autonomous ML research agent — {mode} mode ═══"))
         self.write(self._c("dim", f"    up to {max_iters} iterations; ctrl-C is safe, the run resumes"))
+        if backend:
+            self.write(self._c("dim", f"    {backend}"))
 
     def stage(self, text: str) -> None:
         self.write(self._c("dim", f"  · {text}"))
