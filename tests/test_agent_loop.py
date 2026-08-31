@@ -350,6 +350,30 @@ class TestLoopEndToEnd(LoopTestCase):
         entries = json.loads(Path(loop.cfg.logs_json).read_text())["iterations"]
         self.assertTrue(any(e["errors"] for e in entries))
 
+    def test_an_interrupt_still_finalises_the_graded_deliverable(self):
+        """The banner promises Ctrl-C is safe. `iteration_logs.json` is re-rendered
+        after every entry, so it is already whole -- but the run *summary* is not, and
+        it carries the two figures Feasibility is graded on by name."""
+        loop = self.loop(max_iters=3)
+        real_iteration = loop._iteration
+        calls = {"n": 0}
+
+        def interrupt_on_second(*a, **kw):
+            calls["n"] += 1
+            if calls["n"] >= 2:
+                raise KeyboardInterrupt("operator pressed ctrl-C")
+            return real_iteration(*a, **kw)
+
+        loop._iteration = interrupt_on_second
+        summary = loop.run()
+
+        self.assertGreaterEqual(summary.iterations, 1)
+        self.assertGreater(summary.total_tokens.prompt_tokens, 0)
+        self.assertGreaterEqual(summary.wall_clock_seconds, 0.0)
+        rendered = json.loads(Path(loop.cfg.logs_json).read_text())
+        self.assertIn("summary", rendered["run"])
+        self.assertEqual(len(rendered["iterations"]), summary.iterations)
+
     def test_a_run_resumes_from_the_last_node(self):
         first = self.loop(max_iters=2)
         first.run()

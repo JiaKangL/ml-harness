@@ -1,0 +1,148 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 660" width="960" height="660" font-family="ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif">
+  <title>Autonomous ML Research Agent — six layers and the loop</title>
+  <desc>Six layers with dependencies pointing strictly downward, and the iteration loop that runs across them.</desc>
+  <style>
+    .bg    { fill: #ffffff; }
+    .layer { fill: #f6f7f9; stroke: #d3d7de; stroke-width: 1; rx: 8; }
+    .mod   { fill: #ffffff; stroke: #9aa3ae; stroke-width: 1.2; rx: 5; }
+    .gnd   { fill: #eef4ff; stroke: #6f8cc4; }
+    .term  { fill: #fff3f0; stroke: #c4796f; }
+    .lbl   { font-size: 12px; fill: #1b1f24; }
+    .name  { font-size: 12.5px; fill: #1b1f24; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .layn  { font-size: 11px; fill: #576070; font-weight: 700; letter-spacing: .08em; }
+    .note  { font-size: 11px; fill: #576070; }
+    .title { font-size: 17px; fill: #1b1f24; font-weight: 700; }
+    .sub   { font-size: 12px; fill: #576070; }
+    .flow  { fill: none; stroke: #3a6ea5; stroke-width: 1.6; }
+    .dep   { fill: none; stroke: #9aa3ae; stroke-width: 1.2; stroke-dasharray: 4 3; }
+    .step  { font-size: 11px; fill: #3a6ea5; }
+  </style>
+
+  <rect class="bg" x="0" y="0" width="960" height="660"/>
+  <text class="title" x="28" y="34">Autonomous ML Research Agent — KuaiRand-Pure</text>
+  <text class="sub" x="28" y="54">Dependencies point strictly downward. No L1 module imports from L2+; no L2 module imports from L3+.</text>
+
+  <!-- L6 -->
+  <rect class="layer" x="28" y="74" width="600" height="62"/>
+  <text class="layn" x="40" y="94">L6 · ORCHESTRATION</text>
+  <rect class="mod" x="40" y="100" width="120" height="26"/><text class="name" x="52" y="118">loop.py</text>
+  <rect class="mod" x="172" y="100" width="120" height="26"/><text class="name" x="184" y="118">console.py</text>
+  <text class="note" x="308" y="118">one iteration, and the run</text>
+
+  <!-- L5 -->
+  <rect class="layer" x="28" y="148" width="600" height="62"/>
+  <text class="layn" x="40" y="168">L5 · GENERATION</text>
+  <rect class="mod" x="40" y="174" width="106" height="26"/><text class="name" x="52" y="192">agent.py</text>
+  <rect class="mod" x="158" y="174" width="106" height="26"/><text class="name" x="170" y="192">prompts.py</text>
+  <rect class="mod" x="276" y="174" width="90" height="26"/><text class="name" x="288" y="192">llm.py</text>
+  <rect class="mod" x="378" y="174" width="106" height="26"/><text class="name" x="390" y="192">critics.py</text>
+  <text class="note" x="496" y="192">code-emitting,</text>
+  <text class="note" x="496" y="204">not tool-using</text>
+
+  <!-- L4 -->
+  <rect class="layer" x="28" y="222" width="290" height="62"/>
+  <text class="layn" x="40" y="242">L4 · MEMORY</text>
+  <rect class="mod" x="40" y="248" width="112" height="26"/><text class="name" x="52" y="266">memory.py</text>
+  <rect class="mod" x="164" y="248" width="112" height="26"/><text class="name" x="176" y="266">logger.py</text>
+
+  <!-- L3 -->
+  <rect class="layer" x="28" y="296" width="290" height="62"/>
+  <text class="layn" x="40" y="316">L3 · EXECUTION</text>
+  <rect class="mod" x="40" y="322" width="130" height="26"/><text class="name" x="52" y="340">executor.py</text>
+  <text class="note" x="182" y="340">timeout · RSS cap</text>
+
+  <!-- L2 -->
+  <rect class="layer" x="338" y="222" width="290" height="136"/>
+  <text class="layn" x="350" y="242">L2 · MEASUREMENT</text>
+  <rect class="mod" x="350" y="248" width="140" height="26"/><text class="name" x="362" y="266">evaluator.py</text>
+  <text class="note" x="350" y="292">the 3-seed promotion gate</text>
+  <text class="note" x="350" y="310">prune at one seed,</text>
+  <text class="note" x="350" y="326">never promote on one</text>
+
+  <!-- L1 -->
+  <rect class="layer gnd" x="28" y="370" width="600" height="104"/>
+  <text class="layn" x="40" y="390">L1 · GROUND TRUTH</text>
+  <rect class="mod" x="40" y="396" width="104" height="26"/><text class="name" x="52" y="414">config.py</text>
+  <rect class="mod" x="156" y="396" width="126" height="26"/><text class="name" x="168" y="414">data_guard.py</text>
+  <rect class="mod" x="294" y="396" width="118" height="26"/><text class="name" x="306" y="414">preflight.py</text>
+  <rect class="mod" x="424" y="396" width="110" height="26"/><text class="name" x="436" y="414">scoring.py</text>
+  <rect class="mod" x="40" y="432" width="110" height="26"/><text class="name" x="52" y="450">profiler.py</text>
+  <rect class="mod" x="162" y="432" width="86" height="26"/><text class="name" x="174" y="450">eda.py</text>
+  <rect class="mod" x="260" y="432" width="112" height="26"/><text class="name" x="272" y="450">holdout.py</text>
+  <rect class="mod" x="384" y="432" width="86" height="26"/><text class="name" x="396" y="450">tests/</text>
+  <text class="note" x="482" y="450">guards must fire</text>
+
+  <!-- terminal -->
+  <rect class="layer term" x="28" y="490" width="600" height="46"/>
+  <rect class="mod" x="40" y="500" width="140" height="26"/><text class="name" x="52" y="518">score_final.py</text>
+  <text class="note" x="194" y="518">outside the loop, runs once — the only code permitted to read test labels</text>
+
+  <!-- downward dependency arrows -->
+  <defs>
+    <marker id="dep" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+      <path d="M0,0 L7,3.5 L0,7 z" fill="#9aa3ae"/>
+    </marker>
+    <marker id="flow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto">
+      <path d="M0,0 L7,3.5 L0,7 z" fill="#3a6ea5"/>
+    </marker>
+  </defs>
+  <path class="dep" marker-end="url(#dep)" d="M328,136 L328,146"/>
+  <path class="dep" marker-end="url(#dep)" d="M172,210 L172,220"/>
+  <path class="dep" marker-end="url(#dep)" d="M480,210 L480,220"/>
+  <path class="dep" marker-end="url(#dep)" d="M172,284 L172,294"/>
+  <path class="dep" marker-end="url(#dep)" d="M172,358 L172,368"/>
+  <path class="dep" marker-end="url(#dep)" d="M480,358 L480,368"/>
+
+  <!-- the loop -->
+  <rect class="layer" x="660" y="74" width="272" height="462"/>
+  <text class="layn" x="674" y="94">ONE ITERATION</text>
+
+  <rect class="mod" x="674" y="106" width="244" height="34"/>
+  <text class="lbl" x="686" y="121">1 · propose</text>
+  <text class="note" x="686" y="134">hypothesis + predicted Δ + code</text>
+
+  <rect class="mod" x="674" y="158" width="244" height="34"/>
+  <text class="lbl" x="686" y="173">2 · reject, free</text>
+  <text class="note" x="686" y="186">syntax · contract lint · dead ends</text>
+
+  <rect class="mod" x="674" y="210" width="244" height="34"/>
+  <text class="lbl" x="686" y="225">3 · smoke, 1% of users</text>
+  <text class="note" x="686" y="238">sampled by user, never by row</text>
+
+  <rect class="mod" x="674" y="262" width="244" height="34"/>
+  <text class="lbl" x="686" y="277">4 · seed 42</text>
+  <text class="note" x="686" y="290">clear regression → prune</text>
+
+  <rect class="mod" x="674" y="314" width="244" height="34"/>
+  <text class="lbl" x="686" y="329">5 · seeds 43, 44</text>
+  <text class="note" x="686" y="342">promote only on a 3-seed mean</text>
+
+  <rect class="mod" x="674" y="366" width="244" height="34"/>
+  <text class="lbl" x="686" y="381">6 · gate → trunk pointer</text>
+  <text class="note" x="686" y="394">ledger · iteration log</text>
+
+  <rect class="mod" x="674" y="418" width="244" height="46"/>
+  <text class="lbl" x="686" y="433">stalled twice → 3 critics</text>
+  <text class="note" x="686" y="446">fresh contexts, no agent reasoning;</text>
+  <text class="note" x="686" y="458">their ideas re-enter at step 1</text>
+
+  <rect class="mod" x="674" y="482" width="244" height="34"/>
+  <text class="lbl" x="686" y="497">converged → ensemble</text>
+  <text class="note" x="686" y="510">then build + verify the submission</text>
+
+  <path class="flow" marker-end="url(#flow)" d="M796,140 L796,156"/>
+  <path class="flow" marker-end="url(#flow)" d="M796,192 L796,208"/>
+  <path class="flow" marker-end="url(#flow)" d="M796,244 L796,260"/>
+  <path class="flow" marker-end="url(#flow)" d="M796,296 L796,312"/>
+  <path class="flow" marker-end="url(#flow)" d="M796,348 L796,364"/>
+  <path class="flow" marker-end="url(#flow)" d="M796,400 L796,416"/>
+  <path class="flow" marker-end="url(#flow)" d="M796,464 L796,480"/>
+  <path class="flow" marker-end="url(#flow)" d="M674,124 L652,124 L652,556 L796,556 L796,540"/>
+  <text class="step" x="660" y="572">next iteration builds on the trunk</text>
+
+  <!-- firewalls -->
+  <text class="note" x="28" y="576">Two firewalls, structural rather than instructed:</text>
+  <text class="note" x="28" y="594">· outcome columns (play_time_ms, is_click, …) are materialised for train only — absent from the eval arrays, not masked within them</text>
+  <text class="note" x="28" y="612">· test labels are never written anywhere; holdout.py parses them from the raw log once, after the run is sealed, and records every draw</text>
+  <text class="note" x="28" y="636">Baseline to beat: FM, primary 0.5946 on hidden test.  Oracle ceiling 0.8645.  Promotion bar +0.002 over the parent, on a 3-seed mean.</text>
+</svg>

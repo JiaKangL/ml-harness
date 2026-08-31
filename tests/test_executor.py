@@ -566,6 +566,49 @@ class TestLayering(unittest.TestCase):
             self.assertNotIn(word, source)
 
 
+class TestInterruptLeavesNoOrphan(unittest.TestCase):
+    """Ctrl-C during a candidate run must not leak the child.
+
+    The child leads its own session, so an interrupt that unwinds past the supervision
+    loop leaves it running: burning a core, and -- per this module's own reason for
+    killing groups at all -- corrupting every wall-clock number measured afterwards.
+    The loop's banner tells the operator that Ctrl-C is safe, so this is the test that
+    makes the claim true rather than aspirational.
+    """
+
+    def setUp(self):
+        self.dir = tempfile.TemporaryDirectory()
+        self.addCleanup(self.dir.cleanup)
+        self.ex = ex.Executor(workspace=Path(self.dir.name), preflight_imports=False)
+
+    def test_keyboard_interrupt_terminates_the_process_group(self):
+        seen: dict[str, int] = {}
+        real_snapshot = ex._group_snapshot
+
+        def interrupt_once(pgid: int) -> int:
+            """Fire on the watchdog's first RSS sample, i.e. mid-run."""
+            seen["pgid"] = pgid
+            raise KeyboardInterrupt("operator pressed ctrl-C")
+
+        ex._group_rss_bytes = interrupt_once
+        try:
+            with self.assertRaises(KeyboardInterrupt):
+                self.ex.run(FIXTURES / "noisy_hang.py", "interrupted", "valid", 42)
+        finally:
+            ex._group_rss_bytes = lambda pgid: sum(
+                rss for _, rss, _ in real_snapshot(pgid)
+            )
+
+        self.assertIn("pgid", seen, "the interrupt must fire while the child is alive")
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline and ex.group_pids(seen["pgid"]):
+            time.sleep(0.1)
+        self.assertEqual(
+            ex.group_pids(seen["pgid"]), [],
+            "the child's process group survived the interrupt",
+        )
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
 

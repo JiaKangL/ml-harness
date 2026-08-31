@@ -695,20 +695,31 @@ class Executor:
             except ProcessLookupError:
                 pgid = proc.pid  # exited already; start_new_session made pgid == pid
 
-            next_sample = 0.0
-            while proc.poll() is None:
-                now = time.monotonic()
-                if now >= next_sample:
-                    next_sample = now + _RSS_SAMPLE_INTERVAL_S
-                    rss = _group_rss_bytes(pgid)
-                    peak_rss = max(peak_rss, rss)
-                    if rss > self.rss_cap_bytes:
-                        killed_by = "rss"
+            # BaseException, not Exception: the case this exists for is Ctrl-C. The
+            # child leads its own session, so an interrupt that unwinds past here
+            # leaves it running -- burning a core, holding the cache open, and
+            # corrupting every wall-clock number the harness reports afterwards. The
+            # loop advertises that Ctrl-C is safe and resumable; this is what makes
+            # that true rather than aspirational.
+            try:
+                next_sample = 0.0
+                while proc.poll() is None:
+                    now = time.monotonic()
+                    if now >= next_sample:
+                        next_sample = now + _RSS_SAMPLE_INTERVAL_S
+                        rss = _group_rss_bytes(pgid)
+                        peak_rss = max(peak_rss, rss)
+                        if rss > self.rss_cap_bytes:
+                            killed_by = "rss"
+                            break
+                    if now - started > timeout_s:
+                        killed_by = "timeout"
                         break
-                if now - started > timeout_s:
-                    killed_by = "timeout"
-                    break
-                time.sleep(_POLL_INTERVAL_S)
+                    time.sleep(_POLL_INTERVAL_S)
+            except BaseException:
+                killed_by = "interrupt"
+                _terminate_group(pgid, proc)
+                raise
 
             if killed_by:
                 _terminate_group(pgid, proc)

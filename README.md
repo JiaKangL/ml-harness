@@ -35,6 +35,10 @@ export ANTHROPIC_API_KEY=...
 
 ---
 
+## Architecture
+
+![Six layers and the loop](docs/architecture.svg)
+
 ## How it works
 
 One **iteration** is one turn of the research loop:

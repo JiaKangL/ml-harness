@@ -251,7 +251,7 @@ the sentence we most want — *"the agent chose it."*
 | 4 | `memory.py` `logger.py` | [`plans/P4-memory-logger.md`](plans/P4-memory-logger.md) | **done** — 23 tests |
 | 5 | `prompts` `llm` `agent` `loop` `console` | [`plans/P5-agent-loop.md`](plans/P5-agent-loop.md) | **done** — mock run end-to-end |
 | 6 | `critics.py` + ensembling | [`plans/P6-critics.md`](plans/P6-critics.md) | **done** |
-| 7 | `score_final.py` + write-up | [`plans/P7-submission.md`](plans/P7-submission.md) | `score_final.py` done; write-up next |
+| 7 | `score_final.py` + write-up | [`plans/P7-submission.md`](plans/P7-submission.md) | **done** — diagram in `docs/`; awaiting the live run |
 
 **Mock mode is built with Phase 5, not after it.** `--mock` swaps the LLM for four
 pre-written candidates (good / crashes / constant scores / attempts leakage), so L2–L6

@@ -100,7 +100,7 @@ class ResourceFacts:
     wall_seconds: float
     peak_rss_bytes: int
     exit_code: int | None = None
-    killed_by: str | None = None  # "timeout" | "rss" | None
+    killed_by: str | None = None  # "timeout" | "rss" | "interrupt" | None
 
 
 @dataclass(frozen=True)

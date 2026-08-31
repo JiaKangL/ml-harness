@@ -173,6 +173,23 @@ class Loop:
     # ------------------------------------------------------------ the run
 
     def run(self) -> L.RunSummary:
+        """Drive the run. Interruptible at any point, without losing the deliverable.
+
+        `iteration_logs.json` is re-rendered after every entry, so it is already
+        complete when a Ctrl-C arrives -- but the run *summary* is not, and the summary
+        carries the two figures the rubric asks for by name: total tokens and
+        wall-clock. Finalising on the way out means an interrupted run still reports
+        what it cost, and the state tree resumes from the last node.
+        """
+        try:
+            return self._run()
+        except KeyboardInterrupt:
+            self.console.warn("interrupted — finalising the log; rerun to resume")
+            convergence = self.evaluator.convergence(self.tree.history())
+            iteration = max((n.iteration for n in self.tree.nodes), default=0)
+            return self._finalize(convergence, iteration)
+
+    def _run(self) -> L.RunSummary:
         self.console.banner("mock" if self.cfg.mock else "live", self.cfg.max_iters)
         if not self.cfg.skip_preflight:
             self._preflight()
@@ -233,6 +250,9 @@ class Loop:
                 )
 
         self._endgame(iteration)
+        return self._finalize(convergence, iteration)
+
+    def _finalize(self, convergence: ConvergenceState, iteration: int) -> L.RunSummary:
         summary = self.log.finalize(
             converged=convergence.converged,
             convergence_iteration=iteration if convergence.converged else None,
