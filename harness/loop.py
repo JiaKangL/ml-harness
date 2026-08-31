@@ -245,9 +245,21 @@ class Loop:
                 spent += 1
 
             convergence = self.evaluator.convergence(self.tree.history())
-            if convergence.converged:
+            if convergence.converged and not self._critique_pending():
                 self.console.ok(f"converged: {convergence.reason}")
                 break
+            if convergence.converged:
+                # "Convergence is reported, not obeyed." The organizers' rule fires on
+                # three non-improving iterations, and the critics fire at two -- so the
+                # first critique-driven attempt is itself the third, and honouring
+                # convergence there ends the run with critiques already generated and
+                # paid for but never tested. That is exactly what happened on the first
+                # live run: two of three critic proposals died in the queue with eleven
+                # iterations of budget unspent.
+                self.console.warn(
+                    f"converged by the organizers' rule ({convergence.reason}), but "
+                    f"critique is not exhausted — continuing so it can be tested"
+                )
         else:
             if turns >= self.cfg.max_iters + MAX_FREE_TURNS:
                 self.console.warn(
@@ -273,10 +285,13 @@ class Loop:
 
         self.console.stage("preflight")
         report = preflight.run(skip_fm=self.cfg.mock)
-        if not report.ok:
+        if not report.passed:
+            failed = "\n".join(
+                f"  {c.name}: {c.detail}" for c in report.checks if not c.ok
+            )
             raise RuntimeError(
                 "preflight failed; refusing to start a run whose ground truth is "
-                f"unverified:\n{report.summary() if hasattr(report, 'summary') else report}"
+                f"unverified:\n{failed}"
             )
         self.console.ok(f"preflight passed ({len(report.checks)} checks)")
 
@@ -781,6 +796,17 @@ class Loop:
         )
 
     # ------------------------------------------------------------ escalation
+
+    def _critique_pending(self) -> bool:
+        """Is there critique left to test? Queued proposals, or rounds not yet spent.
+
+        Convergence waits on this. A stalled run whose rescue has been generated but
+        not yet executed has not finished; declaring it converged throws away the one
+        mechanism built to break the stall.
+        """
+        if not self.cfg.critics:
+            return False
+        return bool(self._critique_queue) or self._critic_rounds < C.MAX_CRITIQUE_ROUNDS
 
     def _escalate(self, iteration: int):
         from . import critics

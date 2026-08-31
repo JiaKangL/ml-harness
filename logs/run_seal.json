@@ -1,0 +1,8 @@
+{
+  "node_id": "n00",
+  "submission_sha256": "fe419472ef5b493c5eb815f7ee4b9e21e84cc51285c12ae20b0fc4f04d657eb1",
+  "valid_primary": 0.6018677734002063,
+  "iterations": 8,
+  "converged_reason": "8 scored iteration(s) without a >0.002 improvement over the running incumbent 0.6030",
+  "sealed_at": 1788174179.267797
+}

@@ -325,10 +325,37 @@ CACHE_TTL = "1h"
 
 # Claude Opus 5 list price, USD per million tokens. Cache reads ~0.1x input,
 # 1h-TTL writes 2x. Feasibility is graded on tokens, so this is a deliverable.
-PRICE_IN_PER_MTOK = 5.00
-PRICE_OUT_PER_MTOK = 25.00
-PRICE_CACHE_READ_PER_MTOK = 0.50
-PRICE_CACHE_WRITE_PER_MTOK = 10.00
+#: USD per million tokens, per model. Cache reads are 0.1x input; 1h-TTL cache writes
+#: are 2x input. Keyed by model because Feasibility is graded on cost: running Sonnet
+#: while pricing at Opus rates would overstate the bill 2.5x in the deliverable, and a
+#: wrong number reported confidently is worse than no number.
+PRICES: dict[str, tuple[float, float, float, float]] = {
+    #                     in     out    cache_read  cache_write(1h)
+    "claude-opus-5":     (5.00, 25.00,  0.50,       10.00),
+    "claude-opus-4-8":   (5.00, 25.00,  0.50,       10.00),
+    "claude-sonnet-5":   (2.00, 10.00,  0.20,        4.00),
+    "claude-haiku-4-5":  (1.00,  5.00,  0.10,        2.00),
+}
+#: Opus rates when the model is unknown -- an overestimate, so an unlisted model is
+#: never reported as cheaper than it was.
+_DEFAULT_PRICE = (5.00, 25.00, 0.50, 10.00)
+
+
+def prices_for(model: str) -> tuple[float, float, float, float]:
+    return PRICES.get(model, _DEFAULT_PRICE)
+
+
+PRICE_IN_PER_MTOK, PRICE_OUT_PER_MTOK, PRICE_CACHE_READ_PER_MTOK, PRICE_CACHE_WRITE_PER_MTOK = (
+    prices_for(MODEL)
+)
+
+#: Models that accept a mid-conversation `{"role": "system"}` message. On the others
+#: -- Sonnet 5 among them -- it is a 400, so the per-turn operator instruction has to
+#: ride on a user message instead. This only bites on a rejection re-ask, which is
+#: exactly the path a short smoke run never exercises.
+MID_CONVERSATION_SYSTEM = frozenset({
+    "claude-opus-5", "claude-opus-4-8", "claude-fable-5", "claude-mythos-5",
+})
 
 KILL_GRACE_S = 5
 ENSEMBLE_TOP_K = 5

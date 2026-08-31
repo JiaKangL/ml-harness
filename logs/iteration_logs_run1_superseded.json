@@ -1,0 +1,415 @@
+{
+ "run": {
+  "started_at": 1788171342.429528,
+  "manual_interventions": 0,
+  "manual_intervention_records": [],
+  "iterations": 4,
+  "summary": {
+   "iterations": 4,
+   "manual_interventions": 0,
+   "total_tokens": {
+    "prompt_tokens": 12719,
+    "completion_tokens": 47417,
+    "cache_read_tokens": 15122,
+    "cache_write_tokens": 7561,
+    "latency_seconds": 450.02,
+    "cost_usd": 0.5328764
+   },
+   "wall_clock_seconds": 1219.7,
+   "best_valid": {
+    "iteration": 0,
+    "node_id": "n00",
+    "gauc": 0.667758,
+    "ndcg5": 0.535978,
+    "primary": 0.601868,
+    "primary_std": 0.000551,
+    "seeds": [
+     42,
+     43,
+     44
+    ],
+    "n_seeds": 3,
+    "users": 22377,
+    "rows": 124909
+   },
+   "calibration_r": -0.9579,
+   "converged": true,
+   "convergence_iteration": 3,
+   "failures_by_class": {},
+   "cost_usd": 0.5329,
+   "cache_hit_rate": 0.543
+  }
+ },
+ "iterations": [
+  {
+   "iteration": 0,
+   "node_id": "n00",
+   "parent_id": null,
+   "status": "promoted",
+   "hypothesis": "The organizers' FM baseline, ported to the DataAPI. The incumbent every candidate is measured against.",
+   "axis": "architecture",
+   "grounding": "metric",
+   "grounding_verified": true,
+   "predicted_delta": 0.0,
+   "realised_delta": null,
+   "change_summary": "the FM baseline",
+   "diff": "",
+   "is_rewrite": false,
+   "metrics": {
+    "gauc": 0.667758,
+    "ndcg5": 0.535978,
+    "primary": 0.601868,
+    "primary_std": 0.000551,
+    "seeds": [
+     42,
+     43,
+     44
+    ],
+    "n_seeds": 3,
+    "users": 22377,
+    "rows": 124909
+   },
+   "per_seed": [
+    {
+     "gauc": 0.668445,
+     "ndcg5": 0.536364,
+     "primary": 0.602404,
+     "primary_std": 0.0,
+     "seeds": [
+      42
+     ],
+     "n_seeds": 1,
+     "users": 22377,
+     "rows": 124909
+    },
+    {
+     "gauc": 0.66803,
+     "ndcg5": 0.53576,
+     "primary": 0.601895,
+     "primary_std": 0.0,
+     "seeds": [
+      43
+     ],
+     "n_seeds": 1,
+     "users": 22377,
+     "rows": 124909
+    },
+    {
+     "gauc": 0.666798,
+     "ndcg5": 0.535809,
+     "primary": 0.601304,
+     "primary_std": 0.0,
+     "seeds": [
+      44
+     ],
+     "n_seeds": 1,
+     "users": 22377,
+     "rows": 124909
+    }
+   ],
+   "gate": null,
+   "errors": [],
+   "resources": {
+    "wall_seconds": 13.57,
+    "peak_rss_bytes": 340115456,
+    "exit_code": 0,
+    "killed_by": null
+   },
+   "tokens": {
+    "prompt_tokens": 0,
+    "completion_tokens": 0,
+    "cache_read_tokens": 0,
+    "cache_write_tokens": 0,
+    "latency_seconds": 0.0,
+    "cost_usd": 0.0
+   },
+   "source": "baseline",
+   "timestamp": 1788171422.942366
+  },
+  {
+   "iteration": 1,
+   "node_id": "n01",
+   "parent_id": "n00",
+   "status": "scored",
+   "hypothesis": "The baseline trains with pointwise binary cross-entropy, which optimizes each impression's absolute predicted probability independently. But the metric (GAUC, nDCG@5) only cares about the *within-user ordering* of impressions \u2014 a user's group-level score is invariant to any monotone rescaling that preserves order. Pointwise logloss spends gradient budget calibrating scores for the 5.1%+2.3%=7.4% of train users whose groups are all-negative or all-positive (which the metric literally cannot see, since GAUC excludes them and nDCG@5 gives them a fixed 0 regardless of order), diluting the signal available for the 92.7% \"discriminative\" users where ordering actually matters. Replacing the pointwise loss with a per-user listwise softmax cross-entropy (ListNet-style: softmax the model's scores within each user's impression group, cross-entropy against the normalized label distribution) directly targets ranking within groups, and its gradient is naturally zero for non-discriminative groups (npos=0 or npos=n), so 100% of the gradient signal concentrates exactly where GAUC/nDCG can register the effect. I expect this to move GAUC more than nDCG@5 since GAUC's scope is literally the discriminative-user population this loss privileges, and predict primary improves by roughly +0.006 on valid.",
+   "axis": "loss",
+   "grounding": "splits.train.user_composition (discriminative_pct 92.7%, all_negative_pct 5.1%, all_positive_pct 2.3%) combined with the metric definition (GAUC only scores 0<positives<impressions users; nDCG@5 gives all-negative users a fixed 0 regardless of order)",
+   "grounding_verified": false,
+   "predicted_delta": 0.006,
+   "realised_delta": -0.002855,
+   "change_summary": "Replaced pointwise logistic-regression loss with a per-user-group listwise softmax cross-entropy (ListNet-style), computed vectorized via np.reduceat over contiguous user-grouped batches, with zero gradient for non-discriminative (all-pos/all-neg) groups.",
+   "diff": "--- n00\n+++ candidate\n@@ -1,15 +1,15 @@\n-\"\"\"The run's root node: the organizers' FM baseline, rewritten against the DataAPI.\n-\n-This is the only script in the run that the agent did not write. It exists because the\n-agent needs a parent to build on, and that parent has to be a script satisfying the\n-same contract as every candidate -- same CLI, same output, same data surface -- or the\n-first iteration would be a rewrite of the harness rather than of the model.\n-\n-It is a faithful port, not an improvement: the same five fields, the same k=16 / lr=1e-3\n-Adam FM, the same 40 epochs with patience 4 early-stopping on validation primary. It\n-reproduces the published 0.6016 valid primary to within the seed noise.\n-\n-    python baseline_fm.py --split valid --seed 42 --out scores.npy [--frac 0.01]\n+\"\"\"Candidate: FM baseline architecture, but trained with a per-user listwise softmax\n+cross-entropy loss (ListNet-style) instead of pointwise logloss.\n+\n+Hypothesis: the metric (GAUC, nDCG@5) only cares about within-user ordering. Pointwise\n+logloss spends gradient on calibrating rows in all-negative/all-positive user groups,\n+which the metric cannot see (GAUC excludes them entirely; nDCG@5 gives all-negative\n+groups a fixed 0.0 regardless of any ordering). A listwise softmax loss computed within\n+each user's group naturally has zero gradient for those non-discriminative groups and\n+concentrates 100% of the learning signal on users where ranking actually registers in\n+the metric.\n+\n+    python candidate.py --split valid --seed 42 --out scores.npy [--frac 0.01]\n \"\"\"\n import argparse\n \n@@ -44,12 +44,6 @@\n \n \n def encode(api, splits):\n-    \"\"\"Vocab per field from train, one UNK slot each, then a single flat index space.\n-\n-    An unseen value maps to its field's UNK slot rather than being dropped: the\n-    submission is positional, so a row that produces no score is a misalignment of\n-    every score after it.\n-    \"\"\"\n     edges = np.quantile(\n         api.features(\"train\")[\"duration_ms\"].astype(np.float64),\n         np.linspace(0, 1, 11)[1:-1],\n@@ -92,10 +86,9 @@\n         inter = 0.5 * ((S ** 2).sum(1) - (E ** 2).sum((1, 2)))\n         return self.b + self.W[X].sum(1) + inter, E, S\n \n-    def step(self, X, y):\n-        B = len(y)\n+    def apply_grad(self, X, g):\n+        \"\"\"Shared Adam update given per-row gradient g w.r.t. logits.\"\"\"\n         z, E, S = self.logits(X)\n-        g = ((sigmoid(z) - y) / B).astype(np.float32)\n         gV = np.zeros_like(self.V)\n         gW = np.zeros_like(self.W)\n         np.add.at(gW, X, g[:, None])\n@@ -112,15 +105,38 @@\n             P -= self.lr * (M / (1 - b1 ** self.t)) / (np.sqrt(Vv / (1 - b2 ** self.t)) + eps)\n         self.b -= self.lr * g.sum()\n \n+    def step_pointwise(self, X, y):\n+        B = len(y)\n+        z, E, S = self.logits(X)\n+        g = ((sigmoid(z) - y) / B).astype(np.float32)\n+        self.apply_grad(X, g)\n+\n+    def step_listwise(self, X, y, local_starts, sizes_b):\n+        \"\"\"Per-group softmax cross-entropy gradient, zeroed for non-discriminative\n+        groups (npos==0 or npos==size). local_starts/sizes_b describe contiguous\n+        user-groups inside this batch.\"\"\"\n+        z, _, _ = self.logits(X)\n+        seg_max = np.maximum.reduceat(z, local_starts)\n+        expz = np.exp(z - np.repeat(seg_max, sizes_b))\n+        seg_sum = np.add.reduceat(expz, local_starts)\n+        p = expz / np.repeat(seg_sum, sizes_b)\n+        npos = np.add.reduceat(y, local_starts)\n+        eligible = (npos > 0) & (npos < sizes_b)\n+        denom = np.where(npos > 0, npos, 1.0)\n+        t = y / np.repeat(denom, sizes_b)\n+        mask_rows = np.repeat(eligible, sizes_b)\n+        n_elig = int(eligible.sum())\n+        if n_elig == 0:\n+            return\n+        g = np.where(mask_rows, p - t, 0.0).astype(np.float32)\n+        g /= n_elig\n+        self.apply_grad(X, g)\n+\n     def predict(self, X, bs=200_000):\n         return np.concatenate([self.logits(X[i:i + bs])[0] for i in range(0, len(X), bs)])\n \n \n def gauc_ndcg(users, labels, scores, k=5):\n-    \"\"\"The selection metric for early stopping. Deliberately a local reimplementation:\n-    the frozen evaluate.py is pure Python and costs ~4s per call, which across 40\n-    epochs is most of the run. It is used ONLY to choose an epoch -- every number that\n-    is reported comes from the frozen implementation via the harness.\"\"\"\n     order = np.lexsort((-scores, users))\n     u = users[order]\n     y = labels[order].astype(np.float64)\n@@ -145,6 +161,19 @@\n     return 0.5 * (gauc + (sum(nd) / len(nd) if nd else 0.0))\n \n \n+def group_boundaries(user_ids):\n+    \"\"\"Contiguous-group start indices and sizes, assuming rows already grouped by\n+    user (true of this data by construction; verified via within_user_variance\n+    profiling and the groups() API description).\"\"\"\n+    change = np.empty(len(user_ids), dtype=bool)\n+    change[0] = True\n+    change[1:] = user_ids[1:] != user_ids[:-1]\n+    starts = np.flatnonzero(change)\n+    ends = np.r_[starts[1:], len(user_ids)]\n+    sizes = ends - starts\n+    return starts, sizes\n+\n+\n def main():\n     ap = argparse.ArgumentParser()\n     ap.add_argument(\"--split\", required=True)\n@@ -158,30 +187,49 @@\n     enc, dim = encode(api, sorted(wanted))\n     Xtr = enc[\"train\"]\n     ytr = api.labels(\"train\").astype(np.float32)\n+    utr = api.features(\"train\")[\"user_id\"]\n     Xva, yva = enc[\"valid\"], api.labels(\"valid\")\n     uva = api.features(\"valid\")[\"user_id\"]\n \n     rng = np.random.default_rng(args.seed)\n     if args.frac < 1.0:\n-        # Sample USERS, never rows: the metric is computed inside a user's impression\n-        # group, so a row sample shreds the groups and the smoke test then fails for a\n-        # reason that has nothing to do with the model.\n-        users = api.features(\"train\")[\"user_id\"]\n-        keep_users = rng.choice(np.unique(users), size=max(1, int(len(np.unique(users)) * args.frac)),\n-                                replace=False)\n+        users = utr\n+        uniq = np.unique(users)\n+        keep_users = rng.choice(uniq, size=max(1, int(len(uniq) * args.frac)), replace=False)\n         mask = np.isin(users, keep_users)\n-        Xtr, ytr = Xtr[mask], ytr[mask]\n+        Xtr, ytr, utr = Xtr[mask], ytr[mask], users[mask]\n         epochs, patience = 2, 1\n     else:\n         epochs, patience = EPOCHS, PATIENCE\n \n+    g_starts, g_sizes = group_boundaries(utr)\n+    n_groups = len(g_starts)\n+\n     model = FM(dim, seed=args.seed)\n     best, best_state, bad = -1.0, None, 0\n     for _ in range(epochs):\n-        idx = rng.permutation(len(ytr))\n-        for i in range(0, len(idx), BATCH):\n-            batch = idx[i:i + BATCH]\n-            model.step(Xtr[batch], ytr[batch])\n+        perm = rng.permutation(n_groups)\n+        csize = g_sizes[perm]\n+        group_cum = np.concatenate(([0], np.cumsum(csize)))\n+        total_rows = int(group_cum[-1])\n+        row_idx = np.concatenate([np.arange(g_starts[gg], g_starts[gg] + g_sizes[gg]) for gg in perm])\n+\n+        target_edges = np.arange(BATCH, total_rows, BATCH)\n+        edge_group_idx = np.searchsorted(group_cum, target_edges, side=\"left\")\n+        batch_bounds = np.unique(np.concatenate(([0], edge_group_idx, [n_groups])))\n+\n+        for bi in range(len(batch_bounds) - 1):\n+            g0, g1 = int(batch_bounds[bi]), int(batch_bounds[bi + 1])\n+            if g1 <= g0:\n+                continue\n+            row_a, row_b = int(group_cum[g0]), int(group_cum[g1])\n+            rows = row_idx[row_a:row_b]\n+            Xb = Xtr[rows]\n+            yb = ytr[rows]\n+            sizes_b = csize[g0:g1]\n+            local_starts = np.concatenate(([0], np.cumsum(sizes_b)))[:-1].astype(np.int64)\n+            model.step_listwise(Xb, yb, local_starts, sizes_b)\n+\n         primary = gauc_ndcg(uva, yva, model.predict(Xva))\n         if primary > best + 1e-5:\n             best, bad = primary, 0\n",
+   "is_rewrite": false,
+   "metrics": {
+    "gauc": 0.663963,
+    "ndcg5": 0.534063,
+    "primary": 0.599013,
+    "primary_std": 0.000812,
+    "seeds": [
+     42,
+     43,
+     44
+    ],
+    "n_seeds": 3,
+    "users": 22377,
+    "rows": 124909
+   },
+   "per_seed": [
+    {
+     "gauc": 0.665457,
+     "ndcg5": 0.53444,
+     "primary": 0.599949,
+     "primary_std": 0.0,
+     "seeds": [
+      42
+     ],
+     "n_seeds": 1,
+     "users": 22377,
+     "rows": 124909
+    },
+    {
+     "gauc": 0.663349,
+     "ndcg5": 0.533826,
+     "primary": 0.598587,
+     "primary_std": 0.0,
+     "seeds": [
+      43
+     ],
+     "n_seeds": 1,
+     "users": 22377,
+     "rows": 124909
+    },
+    {
+     "gauc": 0.663082,
+     "ndcg5": 0.533921,
+     "primary": 0.598502,
+     "primary_std": 0.0,
+     "seeds": [
+      44
+     ],
+     "n_seeds": 1,
+     "users": 22377,
+     "rows": 124909
+    }
+   ],
+   "gate": {
+    "promote": false,
+    "reason": "\u0394primary -0.0029 (\u00b10.0008 over 3 seeds) below the +0.002 bar",
+    "quarantined": false,
+    "delta_primary": -0.0028550951819650283,
+    "delta_gauc": -0.0037950631388017353,
+    "delta_ndcg5": -0.0019151272251285434,
+    "seeds_run": 3
+   },
+   "errors": [],
+   "resources": {
+    "smoke_seconds": 1.6,
+    "seed_seconds": 13.8,
+    "wall_seconds": 11.41,
+    "peak_rss_bytes": 295288832,
+    "exit_code": 0,
+    "killed_by": null
+   },
+   "tokens": {
+    "prompt_tokens": 3943,
+    "completion_tokens": 12653,
+    "cache_read_tokens": 0,
+    "cache_write_tokens": 7561,
+    "latency_seconds": 121.68,
+    "cost_usd": 0.16466
+   },
+   "source": "agent",
+   "timestamp": 1788171584.756545
+  },
+  {
+   "iteration": 2,
+   "node_id": "n02",
+   "parent_id": "n00",
+   "status": "scored",
+   "hypothesis": "The FM baseline only sees `user_id`, `video_id`, `author_id`, `tab`, `duration_bucket` as separate fields, so the only way a user's specific taste can affect the ranking of one candidate over another in her group is through the learned `user_id x author_id` interaction inside the FM's low-rank embedding -- and that interaction is squeezed through the same rank-16 space as every other pairwise term (embedding-capacity was already shown not to be the bottleneck at k=8/16/32). Nothing in the current pipeline uses the user's actual behavioural sequence at all, and per the profile the median user has 31 prior train impressions (p90=97) -- enough history to build a direct, non-decomposable user x item-side statistic instead of relying on the embedding to discover it. I will add one engineered feature per row: a smoothed, leave-one-out (for train) \"user x author historical affinity\" = (this user's empirical long_view rate on this author's videos, Bayesian-shrunk toward the author's global rate) minus the author's global rate. This is a genuine cross term -- it is jointly a function of (user, author), not decomposable into a pure user term times a pure item term, so unlike dead end #3 (`item_pop x user_bias`) it does not cancel arithmetically inside a user's group: two candidates by different authors get different values of this feature for the same user, so it can change their relative order. I feed it into the FM's logit as an extra learned linear term alongside the existing embedding-based interactions. I expect a small but real primary gain concentrated in GAUC (where discriminative users with repeat-author exposure benefit) since author_id already varies in ~99% of impression groups, so this feature has room to act almost everywhere; I predict primary improves by about +0.0018 on valid, mostly through GAUC.",
+   "axis": "sequence",
+   "grounding": "train_history_per_user (median 31, p90 97 prior impressions per user) combined with within_user_variance.author_id=0.991",
+   "grounding_verified": false,
+   "predicted_delta": 0.0018,
+   "realised_delta": -1.6e-05,
+   "change_summary": "Added a leave-one-out, Bayesian-shrunk user x author historical long_view-rate deviation feature (computed from train history only, causal for valid/test) as an extra learned linear term in the FM logit, on top of the unchanged 5-field baseline FM.",
+   "diff": "--- n00\n+++ candidate\n@@ -1,15 +1,16 @@\n-\"\"\"The run's root node: the organizers' FM baseline, rewritten against the DataAPI.\n-\n-This is the only script in the run that the agent did not write. It exists because the\n-agent needs a parent to build on, and that parent has to be a script satisfying the\n-same contract as every candidate -- same CLI, same output, same data surface -- or the\n-first iteration would be a rewrite of the harness rather than of the model.\n-\n-It is a faithful port, not an improvement: the same five fields, the same k=16 / lr=1e-3\n-Adam FM, the same 40 epochs with patience 4 early-stopping on validation primary. It\n-reproduces the published 0.6016 valid primary to within the seed noise.\n-\n-    python baseline_fm.py --split valid --seed 42 --out scores.npy [--frac 0.01]\n+\"\"\"\n+Candidate: FM baseline + a user x author historical-affinity continuous feature.\n+\n+Hypothesis: within-user ranking can only be moved by terms that vary jointly with\n+(user, item-side); a per-user history statistic that captures how much a user's\n+historical long_view rate on a given author DEVIATES from that author's global rate\n+is exactly such a term (unlike a pure user_bias, it is not decomposable into\n+separate user-only and item-only pieces). It is computed causally: for train rows we\n+leave the row itself out of its own (user, author) aggregate; for valid/test we use\n+the full train history (which entirely precedes those windows), so no future\n+information leaks in.\n+\n+    python candidate.py --split valid --seed 42 --out scores.npy [--frac 0.01]\n \"\"\"\n import argparse\n \n@@ -24,6 +25,7 @@\n EPOCHS = 40\n BATCH = 8192\n PATIENCE = 4\n+ALPHA_SMOOTH = 5.0  # Bayesian shrinkage strength for the history feature\n \n \n def sigmoid(x):\n@@ -44,12 +46,6 @@\n \n \n def encode(api, splits):\n-    \"\"\"Vocab per field from train, one UNK slot each, then a single flat index space.\n-\n-    An unseen value maps to its field's UNK slot rather than being dropped: the\n-    submission is positional, so a row that produces no score is a misalignment of\n-    every score after it.\n-    \"\"\"\n     edges = np.quantile(\n         api.features(\"train\")[\"duration_ms\"].astype(np.float64),\n         np.linspace(0, 1, 11)[1:-1],\n@@ -73,28 +69,97 @@\n     return out, int(sum(dims))\n \n \n+def history_affinity(api, splits, alpha=ALPHA_SMOOTH):\n+    \"\"\"Per-row user x author historical-affinity feature, causal by construction.\n+\n+    For 'train' rows we compute a leave-one-out aggregate (subtract the row's own\n+    label/count from its (user, author) bucket). For any other split we use the\n+    FULL train aggregate as a lookup table (train entirely precedes valid/test in\n+    time, so this is causal, not leaky). Unknown users/authors fall back to the\n+    author's (or overall) global rate, i.e. affinity 0.\n+    \"\"\"\n+    f_tr = api.features(\"train\")\n+    y_tr = api.labels(\"train\").astype(np.float64)\n+    author_tr = api.video_feature(\"author_id\")[f_tr[\"video_id\"]].astype(np.int64)\n+    user_tr = f_tr[\"user_id\"].astype(np.int64)\n+\n+    uniq_authors, author_inv_tr = np.unique(author_tr, return_inverse=True)\n+    n_authors = uniq_authors.shape[0]\n+    uniq_users, user_inv_tr = np.unique(user_tr, return_inverse=True)\n+    n_users = uniq_users.shape[0]\n+\n+    overall_rate = float(y_tr.mean())\n+    author_pos = np.bincount(author_inv_tr, weights=y_tr, minlength=n_authors)\n+    author_cnt = np.bincount(author_inv_tr, minlength=n_authors).astype(np.float64)\n+    author_rate = np.where(author_cnt > 0, author_pos / np.maximum(author_cnt, 1), overall_rate)\n+\n+    key_tr = user_inv_tr.astype(np.int64) * (n_authors + 1) + author_inv_tr.astype(np.int64)\n+    uniq_keys, key_inv_tr = np.unique(key_tr, return_inverse=True)\n+    key_pos_all = np.bincount(key_inv_tr, weights=y_tr, minlength=uniq_keys.shape[0])\n+    key_cnt_all = np.bincount(key_inv_tr, minlength=uniq_keys.shape[0]).astype(np.float64)\n+\n+    out = {}\n+    for split in splits:\n+        if split == \"train\":\n+            base_rate = author_rate[author_inv_tr]\n+            pos = key_pos_all[key_inv_tr] - y_tr\n+            cnt = key_cnt_all[key_inv_tr] - 1.0\n+            cnt = np.clip(cnt, 0.0, None)\n+        else:\n+            f = api.features(split)\n+            author_raw = api.video_feature(\"author_id\")[f[\"video_id\"]].astype(np.int64)\n+            user_raw = f[\"user_id\"].astype(np.int64)\n+            n = author_raw.shape[0]\n+\n+            a_pos = np.clip(np.searchsorted(uniq_authors, author_raw), 0, n_authors - 1)\n+            a_known = uniq_authors[a_pos] == author_raw\n+            base_rate = np.where(a_known, author_rate[a_pos], overall_rate)\n+\n+            u_pos = np.clip(np.searchsorted(uniq_users, user_raw), 0, n_users - 1)\n+            u_known = uniq_users[u_pos] == user_raw\n+\n+            pos = np.zeros(n, dtype=np.float64)\n+            cnt = np.zeros(n, dtype=np.float64)\n+            lookup_mask = u_known & a_known\n+            if lookup_mask.any():\n+                keys = (u_pos[lookup_mask].astype(np.int64) * (n_authors + 1)\n+                        + a_pos[lookup_mask].astype(np.int64))\n+                kp = np.clip(np.searchsorted(uniq_keys, keys), 0, uniq_keys.shape[0] - 1)\n+                kmatch = uniq_keys[kp] == keys\n+                pos[lookup_mask] = np.where(kmatch, key_pos_all[kp], 0.0)\n+                cnt[lookup_mask] = np.where(kmatch, key_cnt_all[kp], 0.0)\n+\n+        smoothed = (pos + alpha * base_rate) / (cnt + alpha)\n+        out[split] = (smoothed - base_rate).astype(np.float32).reshape(-1, 1)\n+    return out\n+\n+\n class FM:\n-    def __init__(self, dim, k=K, lr=LR, l2=L2, seed=0):\n+    def __init__(self, dim, k=K, lr=LR, l2=L2, seed=0, n_cont=1):\n         rng = np.random.default_rng(seed)\n         self.V = rng.normal(0, 0.01, (dim, k)).astype(np.float32)\n         self.W = np.zeros(dim, dtype=np.float32)\n         self.b = np.float32(0.0)\n+        self.C = np.zeros(n_cont, dtype=np.float32)\n         self.lr, self.l2 = lr, l2\n         self.mV = np.zeros_like(self.V)\n         self.vV = np.zeros_like(self.V)\n         self.mW = np.zeros_like(self.W)\n         self.vW = np.zeros_like(self.W)\n+        self.mC = np.zeros_like(self.C)\n+        self.vC = np.zeros_like(self.C)\n         self.t = 0\n \n-    def logits(self, X):\n+    def logits(self, X, F):\n         E = self.V[X]\n         S = E.sum(1)\n         inter = 0.5 * ((S ** 2).sum(1) - (E ** 2).sum((1, 2)))\n-        return self.b + self.W[X].sum(1) + inter, E, S\n-\n-    def step(self, X, y):\n+        cont = F @ self.C\n+        return self.b + self.W[X].sum(1) + inter + cont, E, S\n+\n+    def step(self, X, F, y):\n         B = len(y)\n-        z, E, S = self.logits(X)\n+        z, E, S = self.logits(X, F)\n         g = ((sigmoid(z) - y) / B).astype(np.float32)\n         gV = np.zeros_like(self.V)\n         gW = np.zeros_like(self.W)\n@@ -102,9 +167,14 @@\n         np.add.at(gV, X, g[:, None, None] * (S[:, None, :] - E))\n         gV += self.l2 * self.V\n         gW += self.l2 * self.W\n+        gC = (F * g[:, None]).sum(0) + self.l2 * self.C\n         self.t += 1\n         b1, b2, eps = 0.9, 0.999, 1e-8\n-        for P, G, M, Vv in ((self.V, gV, self.mV, self.vV), (self.W, gW, self.mW, self.vW)):\n+        for P, G, M, Vv in (\n+            (self.V, gV, self.mV, self.vV),\n+            (self.W, gW, self.mW, self.vW),\n+            (self.C, gC, self.mC, self.vC),\n+        ):\n             M *= b1\n             M += (1 - b1) * G\n             Vv *= b2\n@@ -112,15 +182,15 @@\n             P -= self.lr * (M / (1 - b1 ** self.t)) / (np.sqrt(Vv / (1 - b2 ** self.t)) + eps)\n         self.b -= self.lr * g.sum()\n \n-    def predict(self, X, bs=200_000):\n-        return np.concatenate([self.logits(X[i:i + bs])[0] for i in range(0, len(X), bs)])\n+    def predict(self, X, F, bs=200_000):\n+        outs = []\n+        for i in range(0, len(X), bs):\n+            z, _, _ = self.logits(X[i:i + bs], F[i:i + bs])\n+            outs.append(z)\n+        return np.concatenate(outs)\n \n \n def gauc_ndcg(users, labels, scores, k=5):\n-    \"\"\"The selection metric for early stopping. Deliberately a local reimplementation:\n-    the frozen evaluate.py is pure Python and costs ~4s per call, which across 40\n-    epochs is most of the run. It is used ONLY to choose an epoch -- every number that\n-    is reported comes from the frozen implementation via the harness.\"\"\"\n     order = np.lexsort((-scores, users))\n     u = users[order]\n     y = labels[order].astype(np.float64)\n@@ -154,46 +224,48 @@\n     args = ap.parse_args()\n \n     api = DataAPI()\n-    wanted = {\"train\", \"valid\", args.split}\n-    enc, dim = encode(api, sorted(wanted))\n-    Xtr = enc[\"train\"]\n+    wanted = sorted({\"train\", \"valid\", args.split})\n+    enc, dim = encode(api, wanted)\n+    feats = history_affinity(api, wanted)\n+\n+    Xtr, Ftr = enc[\"train\"], feats[\"train\"]\n     ytr = api.labels(\"train\").astype(np.float32)\n-    Xva, yva = enc[\"valid\"], api.labels(\"valid\")\n+    Xva, Fva = enc[\"valid\"], feats[\"valid\"]\n+    yva = api.labels(\"valid\")\n     uva = api.features(\"valid\")[\"user_id\"]\n \n     rng = np.random.default_rng(args.seed)\n     if args.frac < 1.0:\n-        # Sample USERS, never rows: the metric is computed inside a user's impression\n-        # group, so a row sample shreds the groups and the smoke test then fails for a\n-        # reason that has nothing to do with the model.\n         users = api.features(\"train\")[\"user_id\"]\n-        keep_users = rng.choice(np.unique(users), size=max(1, int(len(np.unique(users)) * args.frac)),\n-                                replace=False)\n+        keep_users = rng.choice(\n+            np.unique(users), size=max(1, int(len(np.unique(users)) * args.frac)), replace=False\n+        )\n         mask = np.isin(users, keep_users)\n-        Xtr, ytr = Xtr[mask], ytr[mask]\n+        Xtr, ytr, Ftr = Xtr[mask], ytr[mask], Ftr[mask]\n         epochs, patience = 2, 1\n     else:\n         epochs, patience = EPOCHS, PATIENCE\n \n-    model = FM(dim, seed=args.seed)\n+    model = FM(dim, seed=args.seed, n_cont=Ftr.shape[1])\n     best, best_state, bad = -1.0, None, 0\n     for _ in range(epochs):\n         idx = rng.permutation(len(ytr))\n         for i in range(0, len(idx), BATCH):\n             batch = idx[i:i + BATCH]\n-            model.step(Xtr[batch], ytr[batch])\n-        primary = gauc_ndcg(uva, yva, model.predict(Xva))\n+            model.step(Xtr[batch], Ftr[batch], ytr[batch])\n+        primary = gauc_ndcg(uva, yva, model.predict(Xva, Fva))\n         if primary > best + 1e-5:\n             best, bad = primary, 0\n-            best_state = (model.V.copy(), model.W.copy(), np.float32(model.b))\n+            best_state = (model.V.copy(), model.W.copy(), np.float32(model.b), model.C.copy())\n         else:\n             bad += 1\n             if bad >= patience:\n                 break\n     if best_state is not None:\n-        model.V, model.W, model.b = best_state\n-\n-    np.save(args.out, model.predict(enc[args.split]).astype(np.float64))\n+        model.V, model.W, model.b, model.C = best_state\n+\n+    Xtarget, Ftarget = enc[args.split], feats[args.split]\n+    np.save(args.out, model.predict(Xtarget, Ftarget).astype(np.float64))\n \n \n if __name__ == \"__main__\":\n",
+   "is_rewrite": false,
+   "metrics": {
+    "gauc": 0.667873,
+    "ndcg5": 0.53583,
+    "primary": 0.601851,
+    "primary_std": 0.000437,
+    "seeds": [
+     42,
+     43,
+     44
+    ],
+    "n_seeds": 3,
+    "users": 22377,
+    "rows": 124909
+   },
+   "per_seed": [
+    {
+     "gauc": 0.668261,
+     "ndcg5": 0.536148,
+     "primary": 0.602205,
+     "primary_std": 0.0,
+     "seeds": [
+      42
+     ],
+     "n_seeds": 1,
+     "users": 22377,
+     "rows": 124909
+    },
+    {
+     "gauc": 0.668271,
+     "ndcg5": 0.535703,
+     "primary": 0.601987,
+     "primary_std": 0.0,
+     "seeds": [
+      43
+     ],
+     "n_seeds": 1,
+     "users": 22377,
+     "rows": 124909
+    },
+    {
+     "gauc": 0.667086,
+     "ndcg5": 0.53564,
+     "primary": 0.601363,
+     "primary_std": 0.0,
+     "seeds": [
+      44
+     ],
+     "n_seeds": 1,
+     "users": 22377,
+     "rows": 124909
+    }
+   ],
+   "gate": {
+    "promote": false,
+    "reason": "\u0394primary -0.0000 (\u00b10.0004 over 3 seeds) below the +0.002 bar",
+    "quarantined": false,
+    "delta_primary": -1.6310011576536887e-05,
+    "delta_gauc": 0.00011477844114504698,
+    "delta_ndcg5": -0.0001473984642983428,
+    "seeds_run": 3
+   },
+   "errors": [],
+   "resources": {
+    "smoke_seconds": 1.8,
+    "seed_seconds": 17.6,
+    "wall_seconds": 20.69,
+    "peak_rss_bytes": 377782272,
+    "exit_code": 0,
+    "killed_by": null
+   },
+   "tokens": {
+    "prompt_tokens": 4656,
+    "completion_tokens": 18758,
+    "cache_read_tokens": 7561,
+    "cache_write_tokens": 0,
+    "latency_seconds": 183.31,
+    "cost_usd": 0.1984042
+   },
+   "source": "agent",
+   "timestamp": 1788172146.775459
+  },
+  {
+   "iteration": 3,
+   "node_id": "n03",
+   "parent_id": "n00",
+   "status": "scored",
+   "hypothesis": "The FM baseline trains with pointwise logloss, whose gradient is driven by matching each row's absolute predicted probability to the global positive rate. Two of its components \u2014 the scalar bias `b` and the linear weight `W[user_id]` \u2014 are, by construction, constant across every impression inside one user's group (since `user_id` doesn't vary within a group). The evaluation metric (GAUC/nDCG) only ever compares scores *within* a group, so any gradient spent moving these per-user-constant terms toward the \"right\" absolute calibration produces literally zero change in the score \u2014 it is capacity and gradient spent on something the metric discards by construction (`within_user_variance`: \"a per-user constant cancels out of that user's ordering exactly\"). The ledger already shows that fully *replacing* pointwise logloss with a listwise softmax over the whole group hurt (`loss/listwise_softmax_ce`, \u0394 \u22120.0029), likely because normalizing over full, highly variable-length groups (p10=5 to p90=97 impressions/user) destabilizes training and removing the pointwise calibration term entirely throws away a stabilizing anchor. Instead, I add a *pairwise BPR term as an auxiliary loss* on top of the existing pointwise logloss, applied only to sampled within-group (positive, negative) pairs. The BPR gradient on the bias `b` sums to exactly zero across a pos/neg pair by construction (its contribution to z_pos and z_neg cancels algebraically), so it explicitly redirects gradient away from the per-user-constant terms and into the terms that vary within a group (`video_id`, `author_id`, `tab`, `dur_bucket`, and their FM interactions with `user_id`) \u2014 the only place ranking signal can live. Because the pointwise term is retained, training stability is preserved while the auxiliary pairwise term supplies gradient that is, by construction, aligned with what the metric actually rewards. I predict a modest but real gain over the milder failure mode of the pure listwise replacement, roughly +0.0025 on primary, concentrated in GAUC (which is the component most sensitive to within-group ordering of moderate-size groups) with nDCG@5 roughly flat.",
+   "axis": "loss",
+   "grounding": "within_user_variance",
+   "grounding_verified": true,
+   "predicted_delta": 0.0025,
+   "realised_delta": -0.001248,
+   "change_summary": "Added an auxiliary BPR pairwise loss on sampled within-user (pos,neg) pairs on top of the existing pointwise logloss, so gradient is explicitly steered away from per-user-constant terms (bias, user linear weight) that cancel out of within-user ranking, toward terms that actually vary inside a group.",
+   "diff": "--- n00\n+++ candidate\n@@ -1,15 +1,16 @@\n-\"\"\"The run's root node: the organizers' FM baseline, rewritten against the DataAPI.\n-\n-This is the only script in the run that the agent did not write. It exists because the\n-agent needs a parent to build on, and that parent has to be a script satisfying the\n-same contract as every candidate -- same CLI, same output, same data surface -- or the\n-first iteration would be a rewrite of the harness rather than of the model.\n-\n-It is a faithful port, not an improvement: the same five fields, the same k=16 / lr=1e-3\n-Adam FM, the same 40 epochs with patience 4 early-stopping on validation primary. It\n-reproduces the published 0.6016 valid primary to within the seed noise.\n-\n-    python baseline_fm.py --split valid --seed 42 --out scores.npy [--frac 0.01]\n+\"\"\"\n+Hypothesis: pointwise logloss spends gradient calibrating per-user-constant terms\n+(scalar bias `b`, linear weight W[user_id]) that cancel out of within-user ranking\n+exactly (see within_user_variance in the measured profile). A pure listwise softmax\n+replacement already failed (ledger: loss/listwise_softmax_ce, -0.0029), likely because\n+removing the pointwise anchor destabilizes training over highly variable group sizes.\n+This script instead ADDS an auxiliary BPR pairwise loss on sampled within-user\n+(positive, negative) pairs on top of the existing pointwise FM training. The BPR\n+gradient on the bias term sums to exactly zero across a pos/neg pair by construction,\n+so it can only push gradient into terms that vary within a group -- exactly the\n+mechanism the metric rewards.\n+\n+    python candidate.py --split valid --seed 42 --out scores.npy [--frac 0.01]\n \"\"\"\n import argparse\n \n@@ -24,6 +25,10 @@\n EPOCHS = 40\n BATCH = 8192\n PATIENCE = 4\n+\n+LAMBDA_PAIR = 1.5\n+MAX_PAIRS_PER_USER = 6\n+PAIR_BATCH = 8192\n \n \n def sigmoid(x):\n@@ -44,12 +49,7 @@\n \n \n def encode(api, splits):\n-    \"\"\"Vocab per field from train, one UNK slot each, then a single flat index space.\n-\n-    An unseen value maps to its field's UNK slot rather than being dropped: the\n-    submission is positional, so a row that produces no score is a misalignment of\n-    every score after it.\n-    \"\"\"\n+    \"\"\"Vocab per field from train, one UNK slot each, then a single flat index space.\"\"\"\n     edges = np.quantile(\n         api.features(\"train\")[\"duration_ms\"].astype(np.float64),\n         np.linspace(0, 1, 11)[1:-1],\n@@ -92,7 +92,19 @@\n         inter = 0.5 * ((S ** 2).sum(1) - (E ** 2).sum((1, 2)))\n         return self.b + self.W[X].sum(1) + inter, E, S\n \n+    def _adam_update(self, gV, gW):\n+        self.t += 1\n+        b1, b2, eps = 0.9, 0.999, 1e-8\n+        for P, G, M, Vv in ((self.V, gV, self.mV, self.vV), (self.W, gW, self.mW, self.vW)):\n+            M *= b1\n+            M += (1 - b1) * G\n+            Vv *= b2\n+            Vv += (1 - b2) * (G * G)\n+            P -= self.lr * (M / (1 - b1 ** self.t)) / (np.sqrt(Vv / (1 - b2 ** self.t)) + eps)\n+\n     def step(self, X, y):\n+        \"\"\"Pointwise logloss step -- unchanged from baseline, retained for training\n+        stability (the listwise-only replacement in the ledger regressed).\"\"\"\n         B = len(y)\n         z, E, S = self.logits(X)\n         g = ((sigmoid(z) - y) / B).astype(np.float32)\n@@ -102,25 +114,44 @@\n         np.add.at(gV, X, g[:, None, None] * (S[:, None, :] - E))\n         gV += self.l2 * self.V\n         gW += self.l2 * self.W\n-        self.t += 1\n-        b1, b2, eps = 0.9, 0.999, 1e-8\n-        for P, G, M, Vv in ((self.V, gV, self.mV, self.vV), (self.W, gW, self.mW, self.vW)):\n-            M *= b1\n-            M += (1 - b1) * G\n-            Vv *= b2\n-            Vv += (1 - b2) * (G * G)\n-            P -= self.lr * (M / (1 - b1 ** self.t)) / (np.sqrt(Vv / (1 - b2 ** self.t)) + eps)\n+        self._adam_update(gV, gW)\n         self.b -= self.lr * g.sum()\n+\n+    def step_pairwise(self, Xpos, Xneg, lam=LAMBDA_PAIR):\n+        \"\"\"Auxiliary BPR step on sampled within-user (pos, neg) pairs.\n+\n+        Gradient on the bias term sums to exactly zero across each pair\n+        (gpos + gneg = 0 elementwise before scatter-add), by construction: this is\n+        the explicit mechanism by which the pairwise term avoids spending gradient\n+        on per-user-constant terms that the ranking metric cannot see.\n+        \"\"\"\n+        Bp = len(Xpos)\n+        if Bp == 0:\n+            return\n+        zpos, Epos, Spos = self.logits(Xpos)\n+        zneg, Eneg, Sneg = self.logits(Xneg)\n+        diff = zpos - zneg\n+        sig = sigmoid(diff)\n+        gpos = ((sig - 1.0) / Bp * lam).astype(np.float32)\n+        gneg = ((1.0 - sig) / Bp * lam).astype(np.float32)\n+\n+        gV = np.zeros_like(self.V)\n+        gW = np.zeros_like(self.W)\n+        np.add.at(gW, Xpos, gpos[:, None])\n+        np.add.at(gV, Xpos, gpos[:, None, None] * (Spos[:, None, :] - Epos))\n+        np.add.at(gW, Xneg, gneg[:, None])\n+        np.add.at(gV, Xneg, gneg[:, None, None] * (Sneg[:, None, :] - Eneg))\n+        gV += self.l2 * self.V\n+        gW += self.l2 * self.W\n+        self._adam_update(gV, gW)\n+        # NOTE: no update to self.b here -- gpos.sum() + gneg.sum() == 0 exactly,\n+        # so the bias would receive zero net gradient from this term anyway.\n \n     def predict(self, X, bs=200_000):\n         return np.concatenate([self.logits(X[i:i + bs])[0] for i in range(0, len(X), bs)])\n \n \n def gauc_ndcg(users, labels, scores, k=5):\n-    \"\"\"The selection metric for early stopping. Deliberately a local reimplementation:\n-    the frozen evaluate.py is pure Python and costs ~4s per call, which across 40\n-    epochs is most of the run. It is used ONLY to choose an epoch -- every number that\n-    is reported comes from the frozen implementation via the harness.\"\"\"\n     order = np.lexsort((-scores, users))\n     u = users[order]\n     y = labels[order].astype(np.float64)\n@@ -145,6 +176,36 @@\n     return 0.5 * (gauc + (sum(nd) / len(nd) if nd else 0.0))\n \n \n+def build_pairs(groups, y, rng, max_pairs=MAX_PAIRS_PER_USER):\n+    \"\"\"Sample up to max_pairs (pos, neg) index pairs per discriminative group.\n+    Static (sampled once), not resampled per epoch, to keep cost and determinism\n+    predictable.\"\"\"\n+    order = np.argsort(groups, kind=\"stable\")\n+    gs = groups[order]\n+    boundaries = np.flatnonzero(np.diff(gs)) + 1\n+    starts = np.concatenate(([0], boundaries))\n+    ends = np.concatenate((boundaries, [len(gs)]))\n+    pos_list, neg_list = [], []\n+    for s, e in zip(starts, ends):\n+        idx = order[s:e]\n+        lab = y[idx]\n+        npos = int(lab.sum())\n+        n = e - s\n+        if 0 < npos < n:\n+            pos_idx = idx[lab == 1]\n+            neg_idx = idx[lab == 0]\n+            m = min(max_pairs, npos, n - npos)\n+            if m <= 0:\n+                continue\n+            pi = pos_idx[rng.integers(0, len(pos_idx), size=m)]\n+            ni = neg_idx[rng.integers(0, len(neg_idx), size=m)]\n+            pos_list.append(pi)\n+            neg_list.append(ni)\n+    if not pos_list:\n+        return np.zeros((0,), dtype=np.int64), np.zeros((0,), dtype=np.int64)\n+    return np.concatenate(pos_list), np.concatenate(neg_list)\n+\n+\n def main():\n     ap = argparse.ArgumentParser()\n     ap.add_argument(\"--split\", required=True)\n@@ -160,20 +221,25 @@\n     ytr = api.labels(\"train\").astype(np.float32)\n     Xva, yva = enc[\"valid\"], api.labels(\"valid\")\n     uva = api.features(\"valid\")[\"user_id\"]\n+    groups_tr = api.groups(\"train\")\n \n     rng = np.random.default_rng(args.seed)\n     if args.frac < 1.0:\n         # Sample USERS, never rows: the metric is computed inside a user's impression\n-        # group, so a row sample shreds the groups and the smoke test then fails for a\n-        # reason that has nothing to do with the model.\n+        # group, so a row sample shreds the groups.\n         users = api.features(\"train\")[\"user_id\"]\n-        keep_users = rng.choice(np.unique(users), size=max(1, int(len(np.unique(users)) * args.frac)),\n-                                replace=False)\n+        keep_users = rng.choice(\n+            np.unique(users), size=max(1, int(len(np.unique(users)) * args.frac)), replace=False\n+        )\n         mask = np.isin(users, keep_users)\n-        Xtr, ytr = Xtr[mask], ytr[mask]\n+        Xtr, ytr, groups_tr = Xtr[mask], ytr[mask], groups_tr[mask]\n         epochs, patience = 2, 1\n     else:\n         epochs, patience = EPOCHS, PATIENCE\n+\n+    pair_rng = np.random.default_rng(args.seed + 12345)\n+    Xpos_idx, Xneg_idx = build_pairs(groups_tr, ytr, pair_rng)\n+    Xpos, Xneg = Xtr[Xpos_idx], Xtr[Xneg_idx]\n \n     model = FM(dim, seed=args.seed)\n     best, best_state, bad = -1.0, None, 0\n@@ -182,6 +248,13 @@\n         for i in range(0, len(idx), BATCH):\n             batch = idx[i:i + BATCH]\n             model.step(Xtr[batch], ytr[batch])\n+\n+        if len(Xpos) > 0:\n+            pidx = rng.permutation(len(Xpos))\n+            for i in range(0, len(pidx), PAIR_BATCH):\n+                b = pidx[i:i + PAIR_BATCH]\n+                model.step_pairwise(Xpos[b], Xneg[b])\n+\n         primary = gauc_ndcg(uva, yva, model.predict(Xva))\n         if primary > best + 1e-5:\n             best, bad = primary, 0\n",
+   "is_rewrite": false,
+   "metrics": {
+    "gauc": 0.666105,
+    "ndcg5": 0.535136,
+    "primary": 0.60062,
+    "primary_std": 0.000589,
+    "seeds": [
+     42,
+     43,
+     44
+    ],
+    "n_seeds": 3,
+    "users": 22377,
+    "rows": 124909
+   },
+   "per_seed": [
+    {
+     "gauc": 0.66552,
+     "ndcg5": 0.535111,
+     "primary": 0.600315,
+     "primary_std": 0.0,
+     "seeds": [
+      42
+     ],
+     "n_seeds": 1,
+     "users": 22377,
+     "rows": 124909
+    },
+    {
+     "gauc": 0.667063,
+     "ndcg5": 0.535536,
+     "primary": 0.6013,
+     "primary_std": 0.0,
+     "seeds": [
+      43
+     ],
+     "n_seeds": 1,
+     "users": 22377,
+     "rows": 124909
+    },
+    {
+     "gauc": 0.665731,
+     "ndcg5": 0.53476,
+     "primary": 0.600246,
+     "primary_std": 0.0,
+     "seeds": [
+      44
+     ],
+     "n_seeds": 1,
+     "users": 22377,
+     "rows": 124909
+    }
+   ],
+   "gate": {
+    "promote": false,
+    "reason": "\u0394primary -0.0012 (\u00b10.0006 over 3 seeds) below the +0.002 bar",
+    "quarantined": false,
+    "delta_primary": -0.001247636976259403,
+    "delta_gauc": -0.0016531450189377628,
+    "delta_ndcg5": -0.0008421289335809323,
+    "seeds_run": 3
+   },
+   "errors": [],
+   "resources": {
+    "smoke_seconds": 1.7,
+    "seed_seconds": 15.8,
+    "wall_seconds": 14.25,
+    "peak_rss_bytes": 364789760,
+    "exit_code": 0,
+    "killed_by": null
+   },
+   "tokens": {
+    "prompt_tokens": 4120,
+    "completion_tokens": 16006,
+    "cache_read_tokens": 7561,
+    "cache_write_tokens": 0,
+    "latency_seconds": 145.03,
+    "cost_usd": 0.16981220000000002
+   },
+   "source": "critic:A",
+   "timestamp": 1788172520.002516
+  }
+ ]
+}

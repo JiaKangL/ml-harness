@@ -631,6 +631,24 @@ class TestLoopEndToEnd(LoopTestCase):
         self.assertEqual(first, second)
         self.assertEqual(runs["n"], 1, "the second call must come from the cache")
 
+    def test_the_preflight_gate_runs_and_reads_the_report_correctly(self):
+        """`_preflight` had never executed: every test and the live smoke passed
+        `skip_preflight=True`, so a wrong attribute name on the report object sat
+        undetected until a real run tried to start and died before iteration 1."""
+        loop = self.loop(max_iters=1, skip_preflight=False, mock=True)
+        loop._preflight()  # must not raise on a healthy checkout
+
+        # ...and it must actually fail the run when a check fails, rather than
+        # crashing on the report object.
+        from harness import preflight as pf
+
+        bad = pf.PreflightReport(checks=[pf.Check("cache built", False, "no cache")])
+        with mock.patch.object(pf, "run", return_value=bad):
+            with self.assertRaises(RuntimeError) as ctx:
+                loop._preflight()
+        self.assertIn("cache built", str(ctx.exception))
+        self.assertIn("no cache", str(ctx.exception))
+
     def test_a_run_resumes_from_the_last_node(self):
         first = self.loop(max_iters=2)
         first.run()

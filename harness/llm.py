@@ -43,13 +43,18 @@ class LLM(Protocol):
     ) -> LLMResponse: ...
 
 
-def price(usage_obj) -> float:
-    """USD from a raw SDK usage object. Cache reads are ~0.1x input; 1h-TTL writes 2x."""
+def price(usage_obj, model: str = C.MODEL) -> float:
+    """USD from a raw SDK usage object, at the rates for `model`.
+
+    Per model, not a constant: cost is a graded deliverable, and pricing a Sonnet run
+    at Opus rates would overstate it 2.5x in the artifact a judge reads.
+    """
+    p_in, p_out, p_read, p_write = C.prices_for(model)
     return (
-        getattr(usage_obj, "input_tokens", 0) * C.PRICE_IN_PER_MTOK
-        + getattr(usage_obj, "output_tokens", 0) * C.PRICE_OUT_PER_MTOK
-        + getattr(usage_obj, "cache_read_input_tokens", 0) * C.PRICE_CACHE_READ_PER_MTOK
-        + getattr(usage_obj, "cache_creation_input_tokens", 0) * C.PRICE_CACHE_WRITE_PER_MTOK
+        getattr(usage_obj, "input_tokens", 0) * p_in
+        + getattr(usage_obj, "output_tokens", 0) * p_out
+        + (getattr(usage_obj, "cache_read_input_tokens", 0) or 0) * p_read
+        + (getattr(usage_obj, "cache_creation_input_tokens", 0) or 0) * p_write
     ) / 1_000_000
 
 
@@ -150,10 +155,17 @@ class AnthropicLLM:
         """
         payload = list(messages)
         if operator:
-            # A per-turn operator instruction as a `system` *message*, not by editing
-            # the top-level system field: editing the prefix invalidates the cache for
-            # every call after it, which is the whole thing we are protecting.
-            payload.append({"role": "system", "content": operator})
+            # A per-turn operator instruction as a *message*, not by editing the
+            # top-level system field: editing the prefix invalidates the cache for every
+            # call after it, which is the whole thing we are protecting.
+            #
+            # `role: "system"` mid-conversation carries operator authority, but only
+            # some models accept it -- Sonnet 5 returns a 400. Falling back to a user
+            # message keeps the cached prefix intact either way, which is what actually
+            # matters here; the authority distinction does not, because there is no
+            # untrusted party in this conversation to distinguish it from.
+            role = "system" if self.model in C.MID_CONVERSATION_SYSTEM else "user"
+            payload.append({"role": role, "content": operator})
 
         started = time.monotonic()
         message = self._call(prefix, payload)
@@ -167,7 +179,7 @@ class AnthropicLLM:
             cache_read_tokens=getattr(u, "cache_read_input_tokens", 0) or 0,
             cache_write_tokens=getattr(u, "cache_creation_input_tokens", 0) or 0,
             latency_seconds=round(latency, 2),
-            cost_usd=price(u),
+            cost_usd=price(u, self.model),
         )
         return LLMResponse(
             text=text,

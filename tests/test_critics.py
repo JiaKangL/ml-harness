@@ -119,6 +119,33 @@ class TestEscalationInTheLoop(LoopTestCase):
         self.assertLessEqual(len(fired), C.MAX_CRITIQUE_ROUNDS)
         self.assertGreaterEqual(len(fired), 1, "a stalling mock run must escalate")
 
+    def test_convergence_waits_for_the_critique_it_generated(self):
+        """The organizers' rule fires at three non-improving iterations; the critics
+        fire at two. So the first critique-driven attempt *is* the third, and obeying
+        convergence there ends the run with critiques generated, paid for, and never
+        tested. The first live run did exactly that: two of three critic proposals died
+        in the queue with eleven iterations of budget unspent."""
+        loop = self.loop(critics=True, max_iters=6)
+
+        # Converged, but a critique is still queued -> the run must not stop.
+        loop._critique_queue = [("B", "multitask", object())]
+        loop._critic_rounds = C.MAX_CRITIQUE_ROUNDS
+        self.assertTrue(loop._critique_pending())
+
+        # Nothing queued but a round still unspent -> still not finished.
+        loop._critique_queue = []
+        loop._critic_rounds = 0
+        self.assertTrue(loop._critique_pending())
+
+        # Queue drained and every round spent -> convergence may now be honoured.
+        loop._critic_rounds = C.MAX_CRITIQUE_ROUNDS
+        self.assertFalse(loop._critique_pending())
+
+        # And with critics switched off it never blocks convergence.
+        loop.cfg.critics = False
+        loop._critique_queue = [("B", "multitask", object())]
+        self.assertFalse(loop._critique_pending())
+
     def test_a_full_stalling_run_records_zero_manual_interventions(self):
         loop = self.loop(critics=True, max_iters=4)
         summary = loop.run()
