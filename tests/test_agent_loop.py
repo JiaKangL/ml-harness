@@ -21,7 +21,7 @@ from harness import llm as LL
 from harness import prompts
 from harness.console import Console
 from harness.loop import Loop, LoopConfig
-from harness.types import NodeStatus, TokenUsage
+from harness.types import PRIORITY_AXES, NodeStatus, TokenUsage
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 #: A two-second root for the loop tests. The FM baseline is the root of a real run --
@@ -284,6 +284,58 @@ class LoopTestCase(unittest.TestCase):
         for k, v in overrides.items():
             setattr(cfg, k, v)
         return Loop(cfg, llm=llm, console=Console(quiet=True), data=self.shared_data())
+
+
+class TestAxisSelection(LoopTestCase):
+    """The search order over research directions."""
+
+    def chooser(self, attempts: dict[str, int], realised: dict[str, float]):
+        loop = self.loop(max_iters=1)
+        loop.tree.axis_attempts = lambda: dict(attempts)
+        loop.ledger.realised_by_axis = lambda: dict(realised)
+        return loop
+
+    def test_the_first_four_iterations_probe_each_priority_axis(self):
+        """Without forced seeding the run commits to whichever axis happened to go
+        first, and the ledger never gets an observation on the other three."""
+        seen, attempts = [], {}
+        loop = self.chooser(attempts, {})
+        for _ in range(len(PRIORITY_AXES)):
+            axis = loop._choose_axis()
+            seen.append(axis)
+            attempts[axis] = attempts.get(axis, 0) + 1
+        self.assertEqual(sorted(seen), sorted(PRIORITY_AXES))
+
+    def test_a_sub_threshold_gain_does_not_buy_an_axis_a_monopoly(self):
+        """The whole point of the exploration bonus, and why its weight is the
+        promotion bar. `loss` here has been tried six times for a best result of
+        +0.001 -- real-looking, but half the bar and well inside the noise. Plain
+        argmax over realised delta would ride it for the rest of the run; the bonus
+        sends the next turn to an axis with one observation instead."""
+        attempts = {a: 1 for a in Loop.SEARCH_AXES}
+        attempts["loss"] = 6
+        loop = self.chooser(attempts, {"loss": 0.001})
+        chosen = {loop._choose_axis() for _ in range(40)}
+        self.assertNotIn("loss", chosen, "a sub-threshold gain must not monopolise")
+
+    def test_a_gain_worth_more_than_the_bar_is_exploited(self):
+        """The other half of the trade. +0.004 is twice the promotion bar, so
+        continuing to spend turns elsewhere would be exploration for its own sake."""
+        attempts = {a: 1 for a in Loop.SEARCH_AXES}
+        attempts["loss"] = 6
+        loop = self.chooser(attempts, {"loss": 0.004})
+        self.assertEqual({loop._choose_axis() for _ in range(40)}, {"loss"})
+
+    def test_a_clearly_better_axis_is_still_preferred_once_evidence_accumulates(self):
+        """Exploration must decay, or the run never exploits what it learned."""
+        attempts = {a: 4 for a in Loop.SEARCH_AXES}
+        loop = self.chooser(attempts, {"loss": 0.02, "temporal": 0.0})
+        picks = [loop._choose_axis() for _ in range(40)]
+        self.assertEqual(set(picks), {"loss"})
+
+    def test_the_endgame_and_locked_axes_are_not_in_the_search_space(self):
+        self.assertNotIn("ensemble", Loop.SEARCH_AXES)
+        self.assertNotIn("architecture", Loop.SEARCH_AXES)
 
 
 class TestLoopEndToEnd(LoopTestCase):

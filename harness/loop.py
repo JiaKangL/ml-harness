@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import math
 import random
 import shutil
 import time
@@ -676,22 +677,52 @@ class Loop:
             )
         )
 
+    #: Axes the loop will choose between. `architecture` is reachable only once the
+    #: priority axes have results (the agent may still propose it, subject to the axis
+    #: lock), and `ensemble` belongs to the endgame rather than to the search.
+    SEARCH_AXES: tuple[str, ...] = PRIORITY_AXES + ("temporal", "debias")
+
+    #: UCB's exploration weight, in units of primary. The promotion bar is the natural
+    #: scale: an axis is worth another look when its uncertainty is worth about one
+    #: promotion. A constant tuned in the abstract would be a number with no meaning on
+    #: this metric.
+    UCB_C = C.PROMOTE_DELTA
+
     def _choose_axis(self) -> str:
-        """Forced seeding first, then exploit what has paid, with a floor.
+        """Forced seeding, then UCB over axes weighted by realised Δ.
 
         Iterations 1-4 are one forced probe per priority axis so the ledger has a real
         observation on each before exploitation starts. Without that the run commits to
         whichever axis happened to go first.
+
+        After that, each axis scores `best realised Δ + c·sqrt(2·ln N / n)`. Plain
+        argmax over realised Δ is the wrong rule for a 15-iteration budget: it would
+        ride whichever axis got lucky first and never revisit an axis tried once for a
+        mediocre result, even though one observation says almost nothing at σ≈0.001.
+        The bonus is what makes "tried once" and "tried three times" different states,
+        and it decays on its own as evidence accumulates -- so no axis starves and none
+        is explored past the point of being informative.
         """
         attempts = self.tree.axis_attempts()
         for axis in PRIORITY_AXES:
             if attempts.get(axis, 0) == 0:
                 return axis
+
         realised = self.ledger.realised_by_axis()
-        scored = [a for a in PRIORITY_AXES + ("temporal", "debias")]
-        if self.rng.random() < 0.25:
-            return self.rng.choice(scored)  # the floor: no axis starves
-        return max(scored, key=lambda a: (realised.get(a, 0.0), -attempts.get(a, 0)))
+        total = sum(max(attempts.get(a, 0), 0) for a in self.SEARCH_AXES) or 1
+
+        def ucb(axis: str) -> float:
+            n = attempts.get(axis, 0)
+            if n == 0:
+                return float("inf")  # never chosen: no estimate exists to exploit
+            exploit = realised.get(axis, 0.0)
+            return exploit + self.UCB_C * math.sqrt(2.0 * math.log(total) / n)
+
+        best = max(ucb(a) for a in self.SEARCH_AXES)
+        # Ties are common early, when every axis has one attempt and the same bonus.
+        # Breaking them at random rather than by list order keeps the run from always
+        # exploring the axes in the order they happen to be declared in.
+        return self.rng.choice([a for a in self.SEARCH_AXES if ucb(a) == best])
 
     def _axis_reason(self, axis: str) -> str:
         attempts = self.tree.axis_attempts().get(axis, 0)

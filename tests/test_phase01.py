@@ -296,6 +296,37 @@ class TestGroundTruthImmutability(unittest.TestCase):
             api.groups("valid")[0] = 999
 
 
+class TestPreflightCheckOrder(unittest.TestCase):
+    """A clean clone must actually pass.
+
+    `check_quarantine` reads `side.npz` to prove the excluded columns never reached the
+    cache, so it has to run *after* the cache is built. Ordered before it, preflight
+    failed on every fresh clone with "side.npz missing" while everything it was really
+    testing was fine -- and it passed here only because a developer's cache already
+    existed. That is the shape of bug this whole gate exists to catch, so it gets a
+    test rather than a fix and a shrug.
+    """
+
+    def test_the_cache_is_built_before_anything_reads_it(self):
+        from harness import preflight
+
+        report = preflight.run(skip_fm=True)
+        names = [c.name for c in report.checks]
+        self.assertIn("cache built", names)
+        for reader in ("leakage quarantine", "row alignment", "leakage firewall"):
+            self.assertLess(
+                names.index("cache built"), names.index(reader),
+                f"{reader!r} reads the cache and must not run before it is built",
+            )
+
+    def test_preflight_passes_end_to_end(self):
+        from harness import preflight
+
+        report = preflight.run(skip_fm=True)
+        failed = [c.name for c in report.checks if not c.ok]
+        self.assertEqual(failed, [], f"preflight checks failed: {failed}")
+
+
 class TestQuarantineCheckCanFail(unittest.TestCase):
     """Regression: this check previously returned a hardcoded True and reported which
     files existed on disk, which is a press release rather than a check."""

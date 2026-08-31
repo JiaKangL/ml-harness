@@ -327,13 +327,18 @@ def run(rebuild: bool = False, skip_fm: bool = False) -> PreflightReport:
     if not report.passed:
         return report
 
-    report.checks.append(check_quarantine())
     report.checks.append(check_no_holdout_artifact())
     eval_check, digest = check_evaluate_frozen()
     report.checks.append(eval_check)
     report.environment["evaluate_sha256"] = digest
 
     report.checks.append(check_cache(rebuild))
+    # After the cache, not before it: the quarantine check reads `side.npz` to prove
+    # the excluded columns never reached it, so running it first fails on a clean
+    # clone with "side.npz missing" while everything it is actually testing is fine.
+    # It only ever passed here because a developer's cache already existed -- the kind
+    # of ordering bug that is invisible until somebody clones the repository.
+    report.checks.append(check_quarantine())
     report.checks.append(check_row_alignment())
     report.checks.append(check_firewall())
     report.checks.append(check_random_baseline())
