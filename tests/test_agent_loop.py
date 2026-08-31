@@ -226,6 +226,32 @@ class TestBackendConfiguration(unittest.TestCase):
         self.assertIn("HARNESS_LLM_BASE_URL", message)
         self.assertIn("--mock", message)
 
+    def test_a_dotenv_file_supplies_the_credential_without_overriding_the_shell(self):
+        """`.env` is gitignored, so a key can live there instead of in a shell profile
+        or a chat transcript. A real environment variable still wins, so what is
+        exported is always what is in effect."""
+        with tempfile.TemporaryDirectory() as d:
+            path = Path(d) / ".env"
+            path.write_text(
+                "# a comment\n"
+                "\n"
+                "export ANTHROPIC_API_KEY='from-dotenv'\n"
+                "HARNESS_LLM_BASE_URL=https://gateway.example\n"
+                "ALREADY_SET=from-dotenv\n"
+            )
+            with mock.patch.dict(os.environ, {"ALREADY_SET": "from-shell"}, clear=False):
+                os.environ.pop("ANTHROPIC_API_KEY", None)
+                os.environ.pop("HARNESS_LLM_BASE_URL", None)
+                C._load_dotenv(path)
+                self.assertEqual(os.environ["ANTHROPIC_API_KEY"], "from-dotenv")
+                self.assertEqual(os.environ["HARNESS_LLM_BASE_URL"], "https://gateway.example")
+                self.assertEqual(os.environ["ALREADY_SET"], "from-shell")
+                for k in ("ANTHROPIC_API_KEY", "HARNESS_LLM_BASE_URL"):
+                    os.environ.pop(k, None)
+
+    def test_a_missing_dotenv_is_not_an_error(self):
+        C._load_dotenv(Path("/nonexistent/.env"))
+
     def test_the_model_id_is_overridable_for_a_gateway(self):
         """A gateway may expose the same model under a different id."""
         self.assertEqual(C.MODEL, os.environ.get("HARNESS_LLM_MODEL", "claude-opus-5"))

@@ -249,6 +249,33 @@ OPTIONAL_IMPORTS = ("torch",)
 # preference: the run depends on `cache_control` with a 1h TTL and on adaptive
 # thinking, neither of which survives translation through an OpenAI-shaped endpoint,
 # and the whole token-accounting deliverable is read off Anthropic's `usage` fields.
+def _load_dotenv(path: Path) -> None:
+    """Read `.env` into the environment, without overriding anything already set.
+
+    Hand-rolled rather than a dependency: the starter kit's selling point is that it
+    needs numpy and nothing else, and this is fifteen lines. It exists so a credential
+    can live in a gitignored file instead of a shell profile or a chat transcript --
+    and so the same key is visible to the loop, to a subprocess, and to whoever picks
+    the run up next, without anyone having to remember to export it.
+
+    A real environment variable always wins, so `.env` is a convenience and never a
+    surprise: if a run behaves oddly, what is exported is what is in effect.
+    """
+    if not path.exists():
+        return
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, _, value = line.partition("=")
+        key = key.strip().removeprefix("export ").strip()
+        value = value.strip().strip("'\"")
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+_load_dotenv(ROOT / ".env")
+
 LLM_API_KEY = os.environ.get("HARNESS_LLM_API_KEY") or os.environ.get("ANTHROPIC_API_KEY")
 LLM_AUTH_TOKEN = (
     os.environ.get("HARNESS_LLM_AUTH_TOKEN") or os.environ.get("ANTHROPIC_AUTH_TOKEN")
