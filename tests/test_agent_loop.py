@@ -23,7 +23,14 @@ from harness import llm as LL
 from harness import prompts
 from harness.console import Console
 from harness.loop import Loop, LoopConfig
-from harness.types import PRIORITY_AXES, NodeStatus, TokenUsage
+from harness.types import (
+    GateDecision,
+    Node,
+    NodeStatus,
+    PRIORITY_AXES,
+    Proposal,
+    TokenUsage,
+)
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures"
 #: A two-second root for the loop tests. The FM baseline is the root of a real run --
@@ -532,6 +539,62 @@ class TestLoopEndToEnd(LoopTestCase):
         rendered = json.loads(Path(loop.cfg.logs_json).read_text())
         self.assertIn("summary", rendered["run"])
         self.assertEqual(len(rendered["iterations"]), summary.iterations)
+
+    def test_the_unbiased_check_actually_compares_against_the_parent(self):
+        """The random-exposure check costs a full extra execution per promotion, so it
+        has to produce a comparison rather than a lone number. It previously cached
+        only nodes that had themselves been promoted, so the parent -- the root always
+        -- was never present and the delta was silently never computed.
+
+        Note the scale: random-exposure primary sits near 0.36 where valid sits near
+        0.58, because uniformly sampled impressions have a far lower positive rate and
+        nDCG@5 counts every all-negative user. Only the candidate-vs-parent delta on
+        this set means anything; the absolute level is not comparable to valid.
+        """
+        loop = self.loop(max_iters=1, unbiased_check=True)
+        root = loop._seed_root()
+        code = Path(root.code_path).read_text()
+
+        child = Node(
+            node_id="n01", parent_id=root.node_id, iteration=1,
+            proposal=Proposal("a hypothesis long enough to be a real one for this test",
+                              "loss", "metric", 0.003, code, "child"),
+            status=NodeStatus.SCORED, code_path=root.code_path, code_sha256="0" * 64,
+        )
+        loop.tree.add(child)
+
+        gate = GateDecision(
+            promote=True, reason="promoted", quarantined=False,
+            delta_primary=0.003, delta_gauc=0.003, delta_ndcg5=0.003, seeds_run=3,
+        )
+        decided = loop._maybe_unbiased(child, code, gate)
+
+        self.assertIn("random-exposure primary", decided.reason)
+        self.assertIn("vs parent on unbiased traffic", decided.reason)
+        self.assertIn(root.node_id, loop._unbiased_cache)
+        self.assertIn("n01", loop._unbiased_cache)
+        for score in loop._unbiased_cache.values():
+            self.assertTrue(0.0 < score < 1.0, f"{score} is not a primary")
+        self.assertTrue(decided.promote, "the check is advisory and never blocks")
+
+    def test_the_unbiased_score_is_memoised_per_node(self):
+        """One execution per node, not one per promotion that mentions it."""
+        loop = self.loop(max_iters=1, unbiased_check=True)
+        root = loop._seed_root()
+        code = Path(root.code_path).read_text()
+
+        runs = {"n": 0}
+        real_run = loop.executor.run
+
+        def counting(*a, **kw):
+            runs["n"] += 1
+            return real_run(*a, **kw)
+
+        loop.executor.run = counting
+        first = loop._unbiased_score(root.node_id, code)
+        second = loop._unbiased_score(root.node_id, code)
+        self.assertEqual(first, second)
+        self.assertEqual(runs["n"], 1, "the second call must come from the cache")
 
     def test_a_run_resumes_from_the_last_node(self):
         first = self.loop(max_iters=2)

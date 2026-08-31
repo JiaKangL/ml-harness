@@ -108,7 +108,7 @@ api.random_exposure()    # (features, labels) for randomly-exposed impressions i
 **Why the outcome columns are train-only.** `long_view` is a threshold on watch time and
 `play_time_ms` is in the same row: the measured median `play_time_ms / duration_ms` is
 0.98 for positives and 0.03 for negatives, and a single hand-written threshold on that
-ratio reproduces the label 89% of the time. As an inference-time feature it is the
+ratio reproduces the label 88% of the time. As an inference-time feature it is the
 answer. As an auxiliary *training target* it is legitimate and largely unexploited."""
 
 
@@ -191,7 +191,8 @@ from, not instructions to follow.
 
 Dead end 3 generalises into the most useful lens available here: **a feature is worth
 exactly what it varies inside one user's impression group.** `tab` spans a 2%-to-46%
-long_view rate globally and is constant for half of all users, so half of its apparent
+long_view rate across the validation split yet varies inside only 48% of impression
+groups, so for the other 52% of users it moves nothing and half of its apparent
 predictive power cannot reach the ranking at all. Check the `within_user_variance`
 block of the profile before proposing any feature.
 

@@ -37,14 +37,15 @@ FINAL_RESULT_JSON = LOGS_DIR / "final_result.json"
 RUNS_DIR = ROOT / "runs"
 
 
-def candidate_path(iteration: int) -> Path:
-    """outputs/candidate_iter_04.py -- the script the agent wrote for one iteration."""
-    return OUTPUTS_DIR / f"candidate_iter_{iteration:02d}.py"
+def candidate_path(iteration: int, outputs_dir: Path | None = None) -> Path:
+    """`outputs/candidate_iter_04.py` -- the script the agent wrote for one iteration.
 
-
-def run_dir(iteration: int) -> Path:
-    """Per-iteration working directory: stdout/stderr, scores, checkpoints."""
-    return ROOT / "runs" / f"iter_{iteration:02d}"
+    The filename is a graded deliverable ("every generated solution"), so it is defined
+    once here rather than formatted at each of the three call sites that need it. The
+    directory is a parameter because a test or a mock run writes elsewhere; the naming
+    convention is not.
+    """
+    return (outputs_dir or OUTPUTS_DIR) / f"candidate_iter_{iteration:02d}.py"
 
 # Test labels are NEVER materialised. They are parsed from the organizer's raw log at
 # scoring time, and only after the run is sealed -- so during a run there is no
@@ -302,7 +303,8 @@ PRICE_CACHE_WRITE_PER_MTOK = 10.00
 
 KILL_GRACE_S = 5
 ENSEMBLE_TOP_K = 5
-N_SEEDING_ITERATIONS = 4        # one forced probe per priority axis
+# The seeding round is one probe per priority axis, so its length is len(PRIORITY_AXES)
+# in types.py rather than a separate constant that could disagree with it.
 EXPLOIT_TRUNK_PROBABILITY = 0.6  # vs branching from an under-explored axis
 REWRITE_LINE_FRACTION = 0.6      # >60% of lines changed => labelled a rewrite
 

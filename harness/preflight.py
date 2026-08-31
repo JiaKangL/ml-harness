@@ -49,10 +49,6 @@ class PreflightReport:
         return all(c.ok for c in self.checks)
 
 
-class PreflightError(RuntimeError):
-    pass
-
-
 def _sha256(path: Path) -> str:
     h = hashlib.sha256()
     with open(path, "rb") as fh:

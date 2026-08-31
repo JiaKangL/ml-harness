@@ -38,8 +38,9 @@ baseline (0.6610 / 0.5282), evaluated **once** on hidden test, from the
 ### Three measured facts that drive the design
 
 1. **Ranking is within-user, so a feature is worth exactly what it varies inside one
-   user's group.** `tab` spans 0.4%→48.9% watch rate globally yet is constant for 48%
-   of users. This is the mechanism behind the organizers' "user-side features give
+   user's group.** `tab` spans 0.4%→48.9% watch rate across the train split yet
+   varies inside only 48% of users' impression groups — so for the other 52% it moves
+   nothing. This is the mechanism behind the organizers' "user-side features give
    zero" finding — arithmetic, not an experiment.
 **2. Selection noise is real but smaller than assumed — and measured, not guessed.**
 Measured over 5 FM seeds on valid: **σ(primary) = 0.00035** (`logs/sigma_valid.txt`),
@@ -95,7 +96,7 @@ corrupts every number the higher layers report.
 |---|---|---|---|
 | L1 | `config.py` | Paths, run policy, **which columns are legal on which split** | — |
 | L1 | `data_guard.py` | The only data surface the agent gets; both firewalls | `cache/*.npz` |
-| L1 | `preflight.py` | Blocking gate: 9 checks incl. reproducing the official baselines | `logs/preflight.json` |
+| L1 | `preflight.py` | Blocking gate: 10 checks incl. reproducing the official baselines | `logs/preflight.json` |
 | L1 | `profiler.py` | Prompt-sized measured data facts | `logs/data_profile.json` |
 | L1 | `eda.py` | Full human-readable EDA; superset of the profile | `logs/eda_report.md` |
 | L1 | `tests/` | Assert every guard **fires**, not that it exists | — |
@@ -243,12 +244,12 @@ the sentence we most want — *"the agent chose it."*
 
 | Phase | Parts | Sub-plan | State |
 |---|---|---|---|
-| 0 | `preflight.py` | — | **done** — 9 checks/30s; FM 0.6015 vs 0.6016 |
-| 1 | `config` `data_guard` `profiler` `tests` | — | **done** — 23 tests, 1,134-token profile |
+| 0 | `preflight.py` | — | **done** — 10 checks/45s; FM 0.6015 vs 0.6016 |
+| 1 | `config` `data_guard` `profiler` `tests` | — | **done** — 1,134-token profile |
 | 1b | `eda.py` | [`plans/P1b-eda.md`](plans/P1b-eda.md) | **done** — report + 6 tests |
 | 2 | `evaluator.py` | [`plans/P2-evaluator.md`](plans/P2-evaluator.md) | **done** |
 | 3 | `executor.py` | [`plans/P3-executor.md`](plans/P3-executor.md) | **done** |
-| 4 | `memory.py` `logger.py` | [`plans/P4-memory-logger.md`](plans/P4-memory-logger.md) | **done** — 23 tests |
+| 4 | `memory.py` `logger.py` | [`plans/P4-memory-logger.md`](plans/P4-memory-logger.md) | **done** |
 | 5 | `prompts` `llm` `agent` `loop` `console` | [`plans/P5-agent-loop.md`](plans/P5-agent-loop.md) | **done** — mock run end-to-end |
 | 6 | `critics.py` + ensembling | [`plans/P6-critics.md`](plans/P6-critics.md) | **done** |
 | 7 | `score_final.py` + write-up | [`plans/P7-submission.md`](plans/P7-submission.md) | **done** — diagram in `docs/`; awaiting the live run |

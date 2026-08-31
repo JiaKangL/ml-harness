@@ -170,6 +170,7 @@ class Loop:
         # are spent one per iteration, so each still passes through the ordinary gate.
         self._critique_queue: list = []
         self._skipped = 0
+        self._unbiased_cache: dict[str, float] = {}
 
     # ------------------------------------------------------------ the run
 
@@ -292,7 +293,7 @@ class Loop:
                                f"(primary {root.valid.primary:.4f})")
             return root
 
-        code_path = self.outputs / "candidate_iter_00.py"
+        code_path = C.candidate_path(0, self.outputs)
         shutil.copyfile(self.cfg.seed_script, code_path)
         code = code_path.read_text()
         root = Node(
@@ -356,7 +357,7 @@ class Loop:
         self.console.tokens(usage)
 
         node_id = f"n{iteration:02d}"
-        code_path = self.outputs / f"candidate_iter_{iteration:02d}.py"
+        code_path = C.candidate_path(iteration, self.outputs)
         code_path.write_text(generation.proposal.code)
         diff, is_rewrite = L.compute_diff(
             parent.proposal.code or Path(parent.code_path).read_text(),
@@ -625,6 +626,23 @@ class Loop:
             out += metrics
         return out, resources
 
+    def _unbiased_score(self, node_id: str, code: str) -> float | None:
+        """Primary on the randomly-exposed impressions, memoised per node.
+
+        `None` when the script will not run there -- advisory checks never fail a run.
+        """
+        if node_id in self._unbiased_cache:
+            return self._unbiased_cache[node_id]
+        result = self.executor.run(code, f"{node_id}_rand", "rand", self.cfg.confirm_seeds[0])
+        if not result.ok:
+            return None
+        feats, labels = self.data.random_exposure()
+        primary = scoring.score(
+            feats["user_id"], labels, np.load(result.scores_path)
+        ).primary
+        self._unbiased_cache[node_id] = primary
+        return primary
+
     def _maybe_unbiased(self, node: Node, code: str, gate: GateDecision) -> GateDecision:
         """Re-score a would-be promotion on randomly-exposed impressions.
 
@@ -635,25 +653,31 @@ class Loop:
         """
         if not (self.cfg.unbiased_check and gate.promote):
             return gate
-        result = self.executor.run(code, node.node_id, "rand", self.cfg.confirm_seeds[0])
-        if not result.ok:
+
+        candidate = self._unbiased_score(node.node_id, code)
+        if candidate is None:
             self.console.warn("unbiased check could not run; promotion stands")
             return gate
-        feats, labels = self.data.random_exposure()
-        metrics = scoring.score(feats["user_id"], labels, np.load(result.scores_path))
+
+        note = f"; random-exposure primary {candidate:.4f}"
         parent = self.tree.get(node.parent_id) if node.parent_id else None
-        note = f"; random-exposure primary {metrics.primary:.4f}"
         if parent is not None:
-            self._unbiased_cache = getattr(self, "_unbiased_cache", {})
-            base = self._unbiased_cache.get(parent.node_id)
+            # Measure the parent on demand when it is not already cached. The earlier
+            # version only ever cached nodes that had themselves been promoted, so the
+            # parent was almost never present -- the root never is -- and the delta,
+            # which is the entire point of this check, silently never computed. It
+            # printed one absolute number and compared nothing, at the price of a full
+            # extra execution per promotion.
+            base = self._unbiased_score(
+                parent.node_id, parent.proposal.code or Path(parent.code_path).read_text()
+            )
             if base is not None:
-                note += f" (Δ{metrics.primary - base:+.4f} vs parent on unbiased traffic)"
-                if metrics.primary < base:
+                note += f" (Δ{candidate - base:+.4f} vs parent on unbiased traffic)"
+                if candidate < base:
                     self.console.warn(
                         "gained on logged traffic but not on random exposure — this may "
                         "be the logging policy rather than the ranking"
                     )
-            self._unbiased_cache[node.node_id] = metrics.primary
         return GateDecision(
             promote=gate.promote,
             reason=gate.reason + note,
@@ -850,7 +874,14 @@ class Loop:
             )
             self.console.ok("run sealed; score_final.py may now read the test labels")
         except Exception as exc:
-            self.console.fail(f"submission build failed: {exc}")
+            # Caught, because a run that produced a good model must not be lost to a
+            # packaging failure -- the tree and the log are already on disk. But it is
+            # recorded, not just printed: the submission is the deliverable, and a run
+            # that ends without one has to say so in the artifact a judge reads.
+            self.console.fail(f"submission build failed: {type(exc).__name__}: {exc}")
+            self.log.record_intervention(
+                f"submission build failed and needs a human: {type(exc).__name__}: {exc}"
+            )
 
 
 # ---------------------------------------------------------------- helpers

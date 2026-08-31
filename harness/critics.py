@@ -165,7 +165,7 @@ def build_ensemble(loop, confirmed: list[Node], iteration: int) -> Node | None:
         members=names,
         score_dir=str(score_dir),
     )
-    code_path = Path(loop.outputs) / f"candidate_iter_{iteration:02d}.py"
+    code_path = C.candidate_path(iteration, Path(loop.outputs))
     code_path.write_text(code)
 
     parent = loop.tree.trunk()

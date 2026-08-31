@@ -134,6 +134,8 @@ guards *fire*, not that they exist.
 | L1 | `harness/profiler.py` | The prompt-sized measured data profile |
 | L1 | `harness/eda.py` | The full human-readable EDA; superset of the profile |
 | L1 | `harness/holdout.py` | The sole path to a test label, behind a seal |
+| L1 | `harness/scoring.py` | The single scoring path — wraps the frozen `evaluate.py`, never reimplements it |
+| L1 | `harness/types.py` | The contracts every layer codes against, so no two layers drift |
 | L2 | `harness/evaluator.py` | Scoring, the seed ladder, the promotion gate, convergence, the submission |
 | L3 | `harness/executor.py` | Runs agent-written code under a timeout, an RSS cap and its own process group; validates the output |
 | L4 | `harness/memory.py` | The state tree with a greedy trunk, and the insight ledger |
@@ -146,7 +148,7 @@ guards *fire*, not that they exist.
 | L6 | `harness/console.py` | The live display |
 | — | `score_final.py` | The only code permitted to read test labels. Nothing in `harness/` imports it. |
 
-**Preflight** reproduces the organizers' own sanity checks: random guessing scores
+**Preflight** is ten blocking checks, and it reproduces the organizers' own sanity checks: random guessing scores
 0.4827 (expected 0.4834) and their Factorization Machine scores 0.6015 (expected
 0.6016). It also verifies our data rows are in *exactly* the same order as theirs —
 the submission file identifies rows by position, so a reordering would misalign every
@@ -224,8 +226,8 @@ a stronger claim than the original would have been.
 
 **2. The within-user variance lens.** A feature is worth exactly what it varies inside
 one user's impression group. `tab` spans a 2%-to-46% watch rate globally and is
-constant for 48% of users, so half its apparent predictive power cannot reach the
-ranking at all. This is arithmetic, not an experiment, and it explains the organizers'
+varies inside only 48% of users' impression groups — so for the other 52% it moves
+nothing, and half its apparent predictive power cannot reach the ranking at all. This is arithmetic, not an experiment, and it explains the organizers'
 published dead ends mechanistically rather than as a list of things that did not work.
 
 **3. Autonomous stall escalation.** At two consecutive non-improvements — one before
