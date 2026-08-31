@@ -1,0 +1,25 @@
+{
+  "node_id": "n03",
+  "submission": "/Users/jk/projects/ml-harness/outputs/submission.csv",
+  "submission_sha256_at_seal": "9928309e30d3fe2f9e99e64193325b15c586b6463f924ed5cc9e45bdcf2a91e9",
+  "valid_primary_at_seal": 0.6030433974933945,
+  "iterations": 8,
+  "test": {
+    "GAUC": 0.663177,
+    "nDCG@5": 0.530634,
+    "primary": 0.596906,
+    "users": 23875,
+    "rows": 170588
+  },
+  "baseline": {
+    "GAUC": 0.661,
+    "nDCG@5": 0.5282,
+    "primary": 0.5946
+  },
+  "delta": {
+    "GAUC": 0.002177,
+    "nDCG@5": 0.002434
+  },
+  "score_dataset": 0.002306,
+  "forced_second_draw": false
+}

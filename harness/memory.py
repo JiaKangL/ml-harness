@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import os
 import random
+import time
 from dataclasses import asdict, replace
 from pathlib import Path
 from typing import Iterable
@@ -178,6 +179,14 @@ class StateTree:
         self._replaying = False
         if resume and self.path.exists():
             self.resume()
+        elif not resume and self.path.exists():
+            # A fresh run must not append to the previous run's events. Appending
+            # produces a file that replays two runs in sequence and dies on the second
+            # root -- "duplicate node_id 'n00'" -- which makes the state unresumable and
+            # the committed artifact incoherent. The old file is moved aside rather
+            # than truncated: it is the record of a run that really happened.
+            archive = self.path.with_suffix(f".{int(time.time())}.jsonl")
+            self.path.rename(archive)
 
     # -- persistence
 

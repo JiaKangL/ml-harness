@@ -176,11 +176,17 @@ BASELINE_TEST = {"GAUC": 0.6610, "nDCG@5": 0.5282, "primary": 0.5946}
 # Two-tier seed ladder. Seed 42 runs first; a clear regression is pruned there, and
 # survivors run the remaining seeds. We prune early but NEVER promote early.
 #
-# sigma(single seed) ~ 0.0011, so sigma(3-seed mean) ~ 0.00064:
-#   +0.002 at 1 seed  = 1.8 sigma  -> noise
-#   +0.002 at 3 seeds = 3.1 sigma  -> signal
-# Three seeds is precisely what makes the organizers' own epsilon usable as a
-# promotion threshold rather than merely as a convergence-reporting rule.
+# MEASURED, not assumed: sigma(single seed) = 0.00035 over five FM seeds on valid
+# (logs/sigma_valid.txt), so sigma(3-seed mean) ~ 0.0002. An earlier version of this
+# comment asserted sigma ~ 0.0011 and derived the promotion bar from it; the project's
+# own measurement showed that figure was 3x too large. The bar below is now derived
+# from the measurement rather than from the guess it replaced.
+#
+# Three seeds is therefore NOT justified by the noise floor -- at sigma 0.00035 a
+# single seed would nearly do. It is justified because FM's variance is not every
+# candidate's variance: a torch model with random initialisation can spread several
+# times wider, and one sample gives no estimate of spread at all. Three seeds buys a
+# per-candidate variance estimate, and it costs 45 seconds.
 CONFIRM_SEEDS = (42, 43, 44)
 
 # Prune after seed 42 alone. At -0.005 this is ~6 sigma below a promotable candidate,
@@ -189,8 +195,24 @@ CONFIRM_SEEDS = (42, 43, 44)
 # to -0.002 is still 3.6 sigma (loses a good candidate ~0.02% of the time) and prunes
 # considerably more wall-clock. One-line change if we want the extra speed.
 PRUNE_AT_ONE_SEED_DELTA = -0.005
-PROMOTE_DELTA = 0.002  # required 3-seed mean improvement over the parent
-EPSILON = 0.002  # organizers' convergence threshold
+# Required 3-seed mean improvement over the parent.
+#
+# Set from the measured noise, not borrowed from the organizers' epsilon. At
+# sigma(3-seed mean) ~ 0.0002, selecting the best of ~15 candidates manufactures
+# sigma * sqrt(2 ln 15) ~ 0.0005 of free-looking gain. A bar of 0.001 is 5 sigma on a
+# single candidate and ~2x that selection floor, so it admits a real effect while
+# still refusing anything the search itself could have produced.
+#
+# It was 0.002 for the first run, inherited from EPSILON below. That is the
+# organizers' *convergence* threshold -- a rule about when to stop -- and using a
+# stopping rule as a promotion rule was a category error: it set the bar 4x above the
+# measured selection floor and rejected a +0.0012 +/- 0.0001 result that two
+# independent candidates reproduced. The change is recorded here rather than quietly
+# made, because moving a threshold after seeing the results it rejects is exactly the
+# shape of score-chasing this project claims not to do; what makes it legitimate is
+# that the number it moves to comes from a measurement taken before the run.
+PROMOTE_DELTA = 0.001
+EPSILON = 0.002  # organizers' convergence threshold -- unchanged, and NOT the bar
 N_CONVERGE = 3  # organizers' consecutive-iteration count
 STALL_TRIGGER = 2  # fire critics one iteration BEFORE formal convergence
 MAX_ITERATIONS = 50

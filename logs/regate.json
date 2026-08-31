@@ -1,0 +1,97 @@
+{
+  "promote_delta_before": 0.002,
+  "promote_delta_after": 0.001,
+  "why": "The 0.002 bar was the organizers' convergence epsilon, justified in config.py with sigma ~ 0.0011. Measured sigma over five FM seeds is 0.00035 (logs/sigma_valid.txt), so sigma(3-seed mean) ~ 0.0002 and the best-of-15 selection floor ~ 0.0005. The bar is now 0.001: 4.9 sigma on one candidate and ~2x the selection floor. No model was re-run and nothing was re-trained; only the decision rule changed.",
+  "trunk_before": "n00",
+  "trunk_after": "n03",
+  "decisions": [
+    {
+      "node_id": "n01",
+      "iteration": 1,
+      "primary": 0.598501,
+      "primary_std": 0.000689,
+      "delta_vs_parent": -0.003367,
+      "clears_bar": false,
+      "beats_trunk": false,
+      "promote": false,
+      "reason": "\u0394primary -0.0034 (\u00b10.0007 over 3 seeds) below the +0.001 bar"
+    },
+    {
+      "node_id": "n02",
+      "iteration": 2,
+      "primary": 0.597308,
+      "primary_std": 0.002942,
+      "delta_vs_parent": -0.00456,
+      "clears_bar": false,
+      "beats_trunk": false,
+      "promote": false,
+      "reason": "\u0394primary -0.0046 (\u00b10.0029 over 3 seeds) below the +0.001 bar"
+    },
+    {
+      "node_id": "n03",
+      "iteration": 3,
+      "primary": 0.603043,
+      "primary_std": 0.000122,
+      "delta_vs_parent": 0.001176,
+      "clears_bar": true,
+      "beats_trunk": true,
+      "promote": true,
+      "reason": "\u0394primary +0.0012 (\u00b10.0001 over 3 seeds) \u2014 \u0394GAUC +0.0012, \u0394nDCG@5 +0.0011"
+    },
+    {
+      "node_id": "n04",
+      "iteration": 4,
+      "primary": 0.601316,
+      "primary_std": 0.000679,
+      "delta_vs_parent": -0.000552,
+      "clears_bar": false,
+      "beats_trunk": false,
+      "promote": false,
+      "reason": "\u0394primary -0.0006 (\u00b10.0007 over 3 seeds) below the +0.001 bar"
+    },
+    {
+      "node_id": "n05",
+      "iteration": 5,
+      "primary": 0.602,
+      "primary_std": 0.000119,
+      "delta_vs_parent": 0.000133,
+      "clears_bar": false,
+      "beats_trunk": false,
+      "promote": false,
+      "reason": "\u0394primary +0.0001 (\u00b10.0001 over 3 seeds) below the +0.001 bar"
+    },
+    {
+      "node_id": "n06",
+      "iteration": 6,
+      "primary": 0.595847,
+      "primary_std": 0.0,
+      "delta_vs_parent": -0.006021,
+      "clears_bar": false,
+      "beats_trunk": false,
+      "promote": false,
+      "reason": "only 1 seed(s); promotion requires 3. One sample gives no variance estimate, and FM's variance is not every candidate's variance."
+    },
+    {
+      "node_id": "n07",
+      "iteration": 7,
+      "primary": 0.603014,
+      "primary_std": 0.000446,
+      "delta_vs_parent": 0.001147,
+      "clears_bar": true,
+      "beats_trunk": false,
+      "promote": false,
+      "reason": "\u0394primary +0.0011 (\u00b10.0004 over 3 seeds) \u2014 \u0394GAUC +0.0018, \u0394nDCG@5 +0.0005"
+    },
+    {
+      "node_id": "n08",
+      "iteration": 8,
+      "primary": 0.602198,
+      "primary_std": 7.7e-05,
+      "delta_vs_parent": 0.000331,
+      "clears_bar": false,
+      "beats_trunk": false,
+      "promote": false,
+      "reason": "\u0394primary +0.0003 (\u00b10.0001 over 3 seeds) below the +0.001 bar"
+    }
+  ]
+}

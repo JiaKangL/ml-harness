@@ -103,8 +103,19 @@ class TestNoFeedbackPath(unittest.TestCase):
             str(self.ROOT / "score_final.py"),
             str(self.ROOT / "harness" / "preflight.py"),  # asserts the artifact is absent
             str(self.ROOT / "harness" / "loop.py"),       # writes the seal, never reads labels
+            str(self.ROOT / "harness" / "regate.py"),    # re-writes the seal, never reads labels
         }
         self.assertTrue(importers <= allowed, f"unexpected holdout importers: {importers - allowed}")
+
+    def test_the_seal_writers_never_read_a_label(self):
+        """`loop.py` and `regate.py` are allowed to import holdout because they WRITE
+        the seal. The distinction is the whole firewall, so it is asserted rather than
+        trusted: neither may call the one function that returns labels."""
+        for module in ("loop.py", "regate.py"):
+            source = (self.ROOT / "harness" / module).read_text()
+            self.assertIn("seal_run", source, f"{module} should write the seal")
+            self.assertNotIn("extract_test_labels", source,
+                             f"{module} must never read test labels")
 
     def test_no_module_under_harness_reads_test_labels(self):
         hits = subprocess.run(

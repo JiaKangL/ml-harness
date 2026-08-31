@@ -1,10 +1,5 @@
 # Autonomous ML Research Agent — KuaiRand-Pure
 
-> **Before submitting:** every figure marked `‹TBD›` comes from `logs/final_result.json`
-> and `logs/iteration_logs.json` after the run. Nothing else needs editing.
-
----
-
 ## Inspiration
 
 The brief asks for a better recommender. We read it as asking for something else: a
@@ -37,18 +32,33 @@ One iteration is one turn of a research loop:
 6. **Escalate, without a human.** Two non-improving iterations trigger three critics in
    fresh contexts. Their proposals re-enter through the same gate.
 
-Nobody edits the agent's code. Manual interventions: **‹TBD›** (target 0).
+Nobody edits the agent's code. Manual interventions: **0**.
 
 ## Results
 
+**Hidden test set, read exactly once, after the run was sealed:**
+
 | | GAUC | nDCG@5 | primary |
 |---|---|---|---|
-| FM baseline (official, hidden test) | 0.6610 | 0.5282 | 0.5946 |
-| This agent | ‹TBD› | ‹TBD› | ‹TBD› |
-| **Δ** | ‹TBD› | ‹TBD› | ‹TBD› |
+| FM baseline (official) | 0.6610 | 0.5282 | 0.5946 |
+| This agent | **0.6632** | **0.5306** | **0.5969** |
+| **Δ** | **+0.0022** | **+0.0024** | **+0.0023** |
 
-Iterations to convergence: ‹TBD› · Tokens: ‹TBD› · Wall clock: ‹TBD› · Cost: ‹TBD›
-Predicted-vs-realised calibration: r = ‹TBD›
+`score_dataset` = mean of per-metric deltas = **+0.0023**
+
+8 iterations to convergence · 133K tokens (34K in / 99K out, 64% served from cache) ·
+26 minutes wall clock · **$1.07** · **0 manual interventions** · 0 crashes
+
+The winning candidate came from **Critic A**, not the main agent: a within-user pairwise
+BPR loss, proposed after the run stalled twice. Validation +0.0012 ± 0.0001 across three
+seeds; the test delta is *larger* than the validation delta, which is the direction you
+want — it did not overfit the split it was selected on.
+
+Predicted-vs-realised calibration: **r = −0.40**. Reported because we said we would.
+The agent's *mechanisms* were consistently right — the listwise-softmax and BPR
+arguments about within-group invariance are correct — but its *effect sizes* were not:
+it predicted +0.006 and got −0.003. It reasons well and estimates badly, and over nine
+iterations that is what the number says.
 
 ## The three things worth leading with
 
@@ -119,7 +129,7 @@ Every one of these was found by *running* the thing, not by reading it.
 
 ## What we're proud of
 
-The tests. There are 204 of them and each one corresponds to a specific way this project
+The tests. There are 208 of them and each one corresponds to a specific way this project
 could produce a confident wrong answer: that a constant-score model is rejected even
 though it exits cleanly; that a hung script leaves no orphan; that a torn state file
 still resumes; that `INCONCLUSIVE` is recorded rather than a fabricated verdict; that

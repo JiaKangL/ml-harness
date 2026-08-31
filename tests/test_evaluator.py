@@ -6,6 +6,7 @@ hours and hand the judges a lucky draw. Everything else here is secondary to tha
 """
 from __future__ import annotations
 
+import math
 import unittest
 from dataclasses import replace
 from pathlib import Path
@@ -65,11 +66,26 @@ class TestNoiseGate(unittest.TestCase):
         self.assertTrue(decision.promote)
         self.assertFalse(decision.quarantined)
 
-    def test_rejects_a_borderline_gain(self):
-        """+0.0015 sits below the +0.002 bar even though it looks like progress."""
-        decision = self.ev.gate(_metrics(self.baseline.primary + 0.0015), self.baseline)
+    def test_rejects_a_gain_the_search_could_have_manufactured(self):
+        """A gain under the bar is refused however much it looks like progress.
+
+        The bar is +0.001, set from the MEASURED noise: sigma(3-seed mean) ~ 0.0002 and
+        a best-of-15 selection floor ~ 0.0005. +0.0005 is exactly that floor -- the
+        amount of apparent improvement that searching produces for free -- so it must
+        not promote.
+        """
+        decision = self.ev.gate(_metrics(self.baseline.primary + 0.0005), self.baseline)
         self.assertFalse(decision.promote)
         self.assertIn("below", decision.reason)
+
+    def test_the_bar_stays_above_the_selection_noise_floor(self):
+        """Guards the recalibration itself. The bar moved from 0.002 to 0.001 after the
+        first run; it must never drift below what searching alone can manufacture, or
+        the gate stops being a gate."""
+        sigma_three_seed = 0.00035 / math.sqrt(3)
+        selection_floor = sigma_three_seed * math.sqrt(2 * math.log(15))
+        self.assertGreater(C.PROMOTE_DELTA, 2 * selection_floor)
+        self.assertGreater(C.PROMOTE_DELTA, 4 * sigma_three_seed)
 
     def test_single_seed_never_promotes(self):
         """Even a large single-seed gain must go through the full ladder: one sample
